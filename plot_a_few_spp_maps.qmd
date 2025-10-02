@@ -1,8 +1,11 @@
 ---
-title: "Examine Lawler maps"
+title: "Examine Lawler spp distribution maps"
 format: 
   html:
     embed-resources: true
+execute:
+  warning: false
+  message: false
 ---
 
 ```{r}
@@ -13,7 +16,7 @@ library(here)
 
 ## Pull all maps for several species
 
-Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.  Then plot, over a Natural Earth outline of US.
+Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.
 
 ```{r}
 sample_maps <- list.files(here('lawler_spp_sample'), 
@@ -48,36 +51,13 @@ future_spp_rasts <- rast(test_spp %>% filter(scenario != 'historical') %>% pull(
 ### as did these
 ```
 
-```{r}
-#| eval: false
-### Check info:
-hist_spp_rasts
-future_spp_rasts
-### WGS 84 lat-long, .0833 deg resolution, -180 to -60, -30 to 90
-
-### check origin
-origin(hist_spp_rasts)
-origin(future_spp_rasts)
-### infinitesimal differences in origin, NOT QUITE zero... ughhh that is annoying
-
-### check extents
-ext(hist_spp_rasts)
-ext(future_spp_rasts)
-
-### use resample on the future (smaller extent) to resample to historical (larger extent)
-# system.time({
-#   for(i in 1:10) {
-    future_resample <- resample(future_spp_rasts, hist_spp_rasts, method = 'near')
-#   }
-# }) 
-### running 10 iterations on 18 maps took 26 sec - running on ~4500 maps 
-### would take ten minutes - is it even necessary?
-
-scenario_rasts <- c(hist_spp_rasts, future_resample)
-```
 
 ### Loop over spp and plot maps
+
+Not shown, for brevity - see final maps later in the script
+
 ```{r}
+#| eval: false
 spp <- test_spp$spp %>% unique()
 
 for(s in spp) {
@@ -91,3 +71,34 @@ for(s in spp) {
 }
 ```
 
+### Notes
+
+It makes sense to include the full North and South America extents for the historical data, as these were probably used for the Maxent training.  And it makes sense to include just North America for the future scenarios, as the analyses were focused exclusively on the US.  But it makes it difficult to work with both map sets simultaneously.
+
+## Crop the historical maps
+
+Crop the historical maps to play well with the future maps...
+
+```{r}
+### Check info:
+hist_spp_rasts
+### WGS 84 lat-long, .0833 deg resolution, -180 to -30, -60 to 90
+
+future_spp_rasts
+### WGS 84 lat-long, .0833 deg resolution, -178.25 to -52.5833, 18.91667 to 83.1667
+
+hist_crop <- crop(hist_spp_rasts, future_spp_rasts)
+
+scenario_rasts <- c(hist_crop, future_spp_rasts)
+
+
+spp <- test_spp$spp %>% unique()
+
+for(s in spp) {
+  ### s <- spp[1]
+  spp_layers <- test_spp %>%
+    filter(spp == s) %>%
+    .$rast_name
+  plot(scenario_rasts[[spp_layers]])
+}
+```

@@ -4,4 +4,6 @@
 .httr-oauth
 .DS_Store
 .quarto
-lawler_data/*
+lawler_data/species_projections/*
+lawler_data/refugia/*
+lawler_data/*.zip

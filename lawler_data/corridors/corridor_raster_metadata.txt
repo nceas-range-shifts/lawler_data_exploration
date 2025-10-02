@@ -1,0 +1,30 @@
+#Dryad Metadata
+
+Title: Climate corridor raster layer (Corridor_raster.tif)
+
+Author(s): Joshua J. Lawler (1), D. Scott Rinnan (1,2), Julia L. Michalak (1), John C. Withey (3), Christopher R. Randels (1), Hugh P. Possingham (4)
+
+1) School of Environmental and Forest Sciences, University of Washington, Seattle, WA, USA
+2) Ecology and Evolutionary Biology, Yale University, New Haven, CT, USA
+3) Graduate Program on the Environment, The Evergreen State College, Olympia, WA, USA
+4) The Nature Conservancy, Arlington, VA, USA
+
+
+Abstract: The length of climate corridors (in km, if any) crossing individual planning units represented by 10-km x 10-km grid across the contiguous United States. The layer is a .tif file which can be opened as a raster layer. Raster values range from 0 (no climate corridors) to 92.5 km.  The original climate corridors were defined by McGuire et al. (2016), see Methods and Related Works.
+
+Keyword(s): conservation planning, spatial conservation prioritization, connectivity, climate change
+
+Methods: The climate corridors identified by McGuire et al. (2016) represent pathways that connect slightly warmer to slightly cooler areas (with climate data mapped at 1-km resolution) that were minimally impacted by human activities (as indicated by human footprint layers, Theobald (2013) and WCS (2005).  These corridors are shown in Fig. S3 in Lawler et al. (2019).  The length of the corridors intersecting each planning unit became the grid value for each cell in the corridor_raster layer.
+
+Usage Notes : 
+
+Funding Information: This work has been funded in part by the David and Lucile Packard Foundation (grant 2011–36858), the National Science Foundation (grant CNH-0814366), and the Wilburforce Foundation through the funding of Adapt West
+
+Related Works:
+McGuire JL, Lawler JJ, McRae BH, Nuñez TA, Theobald DM. 2016 Achieving climate connectivity in a fragmented landscape. Proc. Natl. Acad. Sci. 113, 7195–7200. (doi:10.1073/pnas.1602817113)
+
+Theobald DM. 2013 A general model to quantify ecological integrity for landscape assessments and US application. Landsc. Ecol. 28, 1859–1874. (doi:10.1007/s10980-013-9941-6)
+
+Wildlife Conservation Society (WCS), Center for International Earth Science Information, Network (CIESIN) (2005) Last of the Wild Project, Version 2,. 2005 (LWP-2): Global Human Influence Index (HII) Dataset (Geographic). Available at sedac.ciesin.columbia.edu/data/ set/wildareas-v2-human-influence-index-geographic.
+
+Location information: United States of America, contiguous/conterminous/continental U.S.  See the source file for additional geospatial metadata.
