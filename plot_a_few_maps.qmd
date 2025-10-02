@@ -1,0 +1,93 @@
+---
+title: "Examine Lawler maps"
+format: 
+  html:
+    embed-resources: true
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(here)
+```
+
+## Pull all maps for several species
+
+Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.  Then plot, over a Natural Earth outline of US.
+
+```{r}
+sample_maps <- list.files(here('lawler_spp_sample'), 
+                          full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_df <- data.frame(f = sample_maps,
+                     spp = basename(sample_maps) %>%
+                       str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                       str_replace_all('_', ' '),
+                     tax = basename(dirname(sample_maps)))
+
+test_spp <- spp_df %>% 
+  group_by(tax) %>% 
+  slice_sample(n = 1) %>%
+  select(-f) %>%
+  left_join(spp_df) %>%
+  mutate(scenario = case_when(str_detect(f, 'Historical') ~ 'historical',
+                              TRUE ~ str_extract(f, '[a-z]{2}85bi70')),
+         rast_name = paste(spp, scenario) %>% str_replace_all(' ', '_'))
+```
+
+### Rasterize and check CRS
+
+```{r}
+# spp_rs <- rast(test_spp$f)
+### extents do not match - maybe historical vs future (based on file size)?
+
+hist_spp_rasts <- rast(test_spp %>% filter(scenario == 'historical') %>% pull(f)) %>%
+  setNames(test_spp %>% filter(scenario == 'historical') %>% pull(rast_name))
+### ok, this rasterized successfully
+future_spp_rasts <- rast(test_spp %>% filter(scenario != 'historical') %>% pull(f)) %>%
+  setNames(test_spp %>% filter(scenario != 'historical') %>% pull(rast_name))
+### as did these
+```
+
+```{r}
+#| eval: false
+### Check info:
+hist_spp_rasts
+future_spp_rasts
+### WGS 84 lat-long, .0833 deg resolution, -180 to -60, -30 to 90
+
+### check origin
+origin(hist_spp_rasts)
+origin(future_spp_rasts)
+### infinitesimal differences in origin, NOT QUITE zero... ughhh that is annoying
+
+### check extents
+ext(hist_spp_rasts)
+ext(future_spp_rasts)
+
+### use resample on the future (smaller extent) to resample to historical (larger extent)
+# system.time({
+#   for(i in 1:10) {
+    future_resample <- resample(future_spp_rasts, hist_spp_rasts, method = 'near')
+#   }
+# }) 
+### running 10 iterations on 18 maps took 26 sec - running on ~4500 maps 
+### would take ten minutes - is it even necessary?
+
+scenario_rasts <- c(hist_spp_rasts, future_resample)
+```
+
+### Loop over spp and plot maps
+```{r}
+spp <- test_spp$spp %>% unique()
+
+for(s in spp) {
+  ### s <- spp[1]
+  spp_layers <- test_spp %>%
+    filter(spp == s) %>%
+    .$rast_name
+  spp_future_rast <- future_spp_rasts[[spp_layers[1:3]]]
+  spp_hist_rast <- hist_spp_rasts[[spp_layers[4]]]
+  plot(spp_future_rast); plot(spp_hist_rast, main = spp_layers[4])
+}
+```
+

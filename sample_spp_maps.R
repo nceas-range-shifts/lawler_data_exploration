@@ -2,7 +2,8 @@
 library(tidyverse)
 library(here)
 
-### how many spp to sample per taxon?  4 maps per spp, ~250k per map
+### how many spp to sample per taxon?
+### note: 3 future maps per spp, ~250k per map + 1 historical map ~ 1 MB
 n_spp_per_taxon <- 10
 
 ### list source maps and put into dataframe by species and taxon
@@ -42,8 +43,7 @@ if(any(!file.exists(here('lawler_spp_sample', dir_structure$dir1)))) {
 
 ### copy the files
 file.copy(from = file.path(here('lawler_data/species_projections'), spp_sample_fs$f),
-          to   = file.path(here('lawler_spp_sample'), spp_sample_fs$f),
-          recursive = TRUE)
+          to   = file.path(here('lawler_spp_sample'), spp_sample_fs$f))
 
 ### check total file size
 sample_fs <- list.files(here('lawler_spp_sample'), full.names = TRUE, recursive = TRUE)
