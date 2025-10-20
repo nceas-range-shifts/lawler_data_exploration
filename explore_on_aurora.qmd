@@ -1,0 +1,113 @@
+---
+title: "Examine Lawler spp distribution maps"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(here)
+```
+
+## Pull all maps for several species
+
+Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.
+
+```{r}
+here_anx <- function(f = '', ...) { 
+  ### create file path to git-annex dir for project
+  f <- paste(f, ..., sep = '/')
+  f <- stringr::str_replace_all(f, '\\/+', '/')
+  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
+  return(f_anx)
+}
+
+
+sample_maps <- list.files(here_anx('species_projections'), 
+                          full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_df <- data.frame(f = sample_maps,
+                     spp = basename(sample_maps) %>%
+                       str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                       str_replace_all('_', ' '),
+                     tax = basename(dirname(sample_maps)))
+
+test_spp <- spp_df %>% 
+  group_by(tax) %>% 
+  slice_sample(n = 1) %>%
+  select(-f) %>%
+  left_join(spp_df) %>%
+  mutate(scenario = case_when(str_detect(f, 'Historical') ~ 'historical',
+                              TRUE ~ str_extract(f, '[a-z]{2}85bi70')),
+         rast_name = paste(spp, scenario) %>% str_replace_all(' ', '_'))
+```
+
+### Rasterize and check CRS
+
+```{r}
+# spp_rs <- rast(test_spp$f)
+### extents do not match - maybe historical vs future (based on file size)?
+
+hist_spp_rasts <- rast(test_spp %>% filter(scenario == 'historical') %>% pull(f)) %>%
+  setNames(test_spp %>% filter(scenario == 'historical') %>% pull(rast_name))
+### ok, this rasterized successfully
+future_spp_rasts <- rast(test_spp %>% filter(scenario != 'historical') %>% pull(f)) %>%
+  setNames(test_spp %>% filter(scenario != 'historical') %>% pull(rast_name))
+### as did these
+```
+
+
+### Loop over spp and plot maps
+
+Not shown, for brevity - see final maps later in the script
+
+```{r}
+#| eval: false
+spp <- test_spp$spp %>% unique()
+
+for(s in spp) {
+  ### s <- spp[1]
+  spp_layers <- test_spp %>%
+    filter(spp == s) %>%
+    .$rast_name
+  spp_future_rast <- future_spp_rasts[[spp_layers[1:3]]]
+  spp_hist_rast <- hist_spp_rasts[[spp_layers[4]]]
+  plot(spp_future_rast); plot(spp_hist_rast, main = spp_layers[4])
+}
+```
+
+### Notes
+
+It makes sense to include the full North and South America extents for the historical data, as these were probably used for the Maxent training.  And it makes sense to include just North America for the future scenarios, as the analyses were focused exclusively on the US.  But it makes it difficult to work with both map sets simultaneously.
+
+## Crop the historical maps
+
+Crop the historical maps to play well with the future maps...
+
+```{r}
+### Check info:
+hist_spp_rasts
+### WGS 84 lat-long, .0833 deg resolution, -180 to -30, -60 to 90
+
+future_spp_rasts
+### WGS 84 lat-long, .0833 deg resolution, -178.25 to -52.5833, 18.91667 to 83.1667
+
+hist_crop <- crop(hist_spp_rasts, future_spp_rasts)
+
+scenario_rasts <- c(hist_crop, future_spp_rasts)
+
+
+spp <- test_spp$spp %>% unique()
+
+for(s in spp) {
+  ### s <- spp[1]
+  spp_layers <- test_spp %>%
+    filter(spp == s) %>%
+    .$rast_name
+  plot(scenario_rasts[[spp_layers]])
+}
+```
