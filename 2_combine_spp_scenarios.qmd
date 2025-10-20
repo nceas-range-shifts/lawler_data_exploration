@@ -38,12 +38,12 @@ List all map files available, and gather info on species, taxon, and scenario fr
 
 ```{r}
 spp_mapfiles <- list.files(here_anx('species_projections'), 
-                          full.names = TRUE, recursive = TRUE, pattern = '.tif')
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_all_df <- data.frame(f = spp_mapfiles,
-                     spp = basename(spp_mapfiles) %>%
-                       str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
-                       str_replace_all('_', ' '),
-                     tax = basename(dirname(spp_mapfiles)))
+                         spp = basename(spp_mapfiles) %>%
+                           str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                           str_replace_all('_', ' '),
+                         tax = basename(dirname(spp_mapfiles)))
 
 ### sample 10 species per taxon, and identify all scenario maps for each
 set.seed(42)
@@ -96,7 +96,8 @@ plot(x, main = names(future_rast)[1])
 ### crop historical maps
 
 ```{r}
-hist_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df, scenario = 'historical') %>%
+hist_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df, 
+                    scenario = 'historical') %>%
   setNames(spp_vec) %>%
   rast()
 
