@@ -1,0 +1,175 @@
+---
+title: "Look for spp crossing borders"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+```
+
+## Gather maps and aggregate
+
+Grab a sample of species (10 spp for each taxon), gather all future scenario maps and aggregate, summing and dividing by 3 to make a "probability" map for future distributions, and crop to just the lower 48 US states (and a little Canada and Mexico).  Then crop the historical maps to the same extent.  Write out these files to an output directory (`out`).
+
+Why just the lower 48?  Alaska looks like it gets a lot of species from much farther south, which seems questionable.  So let's focus on the same area of interest from the Lawler paper, i.e., lower 48.
+
+### Identify species sample
+
+```{r}
+here_anx <- function(f = '', ...) { 
+  ### create file path to git-annex dir for project
+  f <- paste(f, ..., sep = '/')
+  f <- stringr::str_replace_all(f, '\\/+', '/')
+  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
+  return(f_anx)
+}
+```
+
+List all map files available, and gather info on species, taxon, and scenario from the file path information.
+
+```{r}
+spp_mapfiles <- list.files(here_anx('species_projections'), 
+                          full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df <- data.frame(f = spp_mapfiles,
+                     spp = basename(spp_mapfiles) %>%
+                       str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                       str_replace_all('_', ' '),
+                     tax = basename(dirname(spp_mapfiles)))
+
+### sample 10 species per taxon, and identify all scenario maps for each
+set.seed(42)
+spp_sample_df <- spp_all_df %>%
+  select(-f) %>%
+  distinct() %>%
+  group_by(tax) %>%
+  slice_sample(n = 10) %>%
+  ungroup() %>%
+  left_join(spp_all_df)
+```
+
+### Aggregate future projections
+
+For each species in the sample, aggregate the three future scenarios into a single map.  Crop to the lower continental US states.
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Define aggregation function
+agg_scenario <- function(s, df, scenario = 'future') {
+  ### for species s, filter historical map files from df; rasterize; mean
+  
+  if(scenario == 'future') { ### filter to non-Historical
+    s_df <- df %>%
+      filter(spp == s & !str_detect(f, 'Historical'))
+  } else { ### else filter to Historical
+    s_df <- df %>%
+      filter(spp == s & str_detect(f, 'Historical'))
+  }
+  s_map <- rast(s_df$f) %>%
+    crop(us_extent) %>%
+    sum(na.rm = TRUE)
+  s_map <- s_map / nrow(s_df)
+  return(s_map)
+}
+
+### Aggregate over the vector of species names
+spp_vec <- spp_sample_df$spp %>% unique()
+
+future_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- future_rast[[1]]
+plot(x, main = names(future_rast)[1])
+```
+
+### crop historical maps
+
+```{r}
+hist_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df, scenario = 'historical') %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- hist_rast[[1]]
+plot(x, main = names(hist_rast)[1])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+states_rast <- rasterize(states_sf, hist_rast, field = 'gn_id')
+plot(states_rast)
+```
+
+## Rough pass at classification?
+
+For each spp let's create a dataframe of jurisdictions and cell values...
+
+```{r}
+extract_jurisdictions <- function(spp, future_r, hist_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_f_r <- future_r[[names(future_r) == spp]]
+  s_h_r <- hist_r[[names(hist_r) == spp]]
+  s_df <- data.frame(values(s_h_r), 
+                     values(s_f_r), 
+                     values(juris_r)) %>%
+    setNames(c('historical', 'future', 'id')) %>%
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>%
+    group_by(id) %>%
+    summarize(n_historical = sum(historical > .25),
+              n_future = sum(future > .5))
+  
+  return(s_df)
+}
+
+state_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions,
+                         future_r = future_rast, 
+                         hist_r = hist_rast,
+                         juris_r = states_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') %>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  group_by(spp, juris) %>%
+  summarize(n_historical = sum(n_historical),
+            n_future = sum(n_future), 
+            .groups = 'drop')
+```
+
+### Interpret results
+
+Interpret historical and future cell counts into entry/exit/no presence/continued presence.  NOTE: probably would want to throw a threshold on the cell counts, like at least 10 cells to actually register...
+
+```{r}
+all_juris_df <- state_spp_list %>%
+  mutate(status = case_when(n_historical == 0 &  n_future > 0 ~ 'entry into new',
+                            n_historical > 0  & n_future == 0 ~ 'exit from historical',
+                            n_historical == 0 & n_future == 0 ~ 'no presence',
+                            TRUE ~ 'continued presence'))
+
+all_juris_df$status %>% table()
+```
+
