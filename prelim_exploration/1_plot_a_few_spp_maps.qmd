@@ -19,7 +19,7 @@ library(here)
 Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.
 
 ```{r}
-sample_maps <- list.files(here('lawler_spp_sample'), 
+sample_maps <- list.files(here('prelim_exploration/lawler_spp_sample'), 
                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_df <- data.frame(f = sample_maps,
                      spp = basename(sample_maps) %>%

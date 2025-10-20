@@ -25,7 +25,7 @@ Why just the lower 48?  Alaska looks like it gets a lot of species from much far
 ### aggregate future scenarios
 
 ```{r}
-sample_maps <- list.files(here('lawler_spp_sample'), 
+sample_maps <- list.files(here('prelim_exploration/lawler_spp_sample'), 
                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_df <- data.frame(f = sample_maps,
                      spp = basename(sample_maps) %>%
@@ -38,7 +38,7 @@ spp_vec <- spp_df$spp %>% unique()
 us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
 
 for(s in spp_vec) {
-  f_out <- here('out/future', sprintf('%s.tif', str_replace(tolower(s), ' ', '_')))
+  f_out <- here('prelim_exploration/out/future', sprintf('%s.tif', str_replace(tolower(s), ' ', '_')))
   if(file.exists(f_out)) next()
   
   s_future_df <- spp_df %>%
@@ -50,7 +50,7 @@ for(s in spp_vec) {
   writeRaster(s_future_map, f_out)
 }
 
-x <- rast(here('out/future/taxodium_mucronatum.tif'))
+x <- rast(here('prelim_exploration/out/future/taxodium_mucronatum.tif'))
 plot(x, main = 'Taxodium mucronatum, future')
 ```
 
@@ -61,7 +61,7 @@ Note, Taxodium mucronatum is included in both "trees" and "plants" taxa for some
 ```{r}
 for(s in spp_vec) {
   ### s <- 'Taxodium mucronatum'
-  f_out <- here('out/historical', sprintf('%s.tif', str_replace(tolower(s), ' ', '_')))
+  f_out <- here('prelim_exploration/out/historical', sprintf('%s.tif', str_replace(tolower(s), ' ', '_')))
   if(file.exists(f_out)) next()
   
   s_hist_df <- spp_df %>%
@@ -72,7 +72,7 @@ for(s in spp_vec) {
   s_hist_map <- s_hist_map / nrow(s_hist_df)
   writeRaster(s_hist_map, f_out)
 }
-x <- rast(here('out/historical/taxodium_mucronatum.tif'))
+x <- rast(here('prelim_exploration/out/historical/taxodium_mucronatum.tif'))
 plot(x, main = 'Taxodium mucronatum, historical')
 ```
 
@@ -93,7 +93,7 @@ state_id_df <- states_sf %>%
 states_rast <- rasterize(states_sf, x, field = 'gn_id')
 plot(states_rast)
 
-writeRaster(states_rast, here('out/states.tif'), overwrite = TRUE)
+writeRaster(states_rast, here('prelim_exploration/out/states.tif'), overwrite = TRUE)
 ```
 
 ## Rough pass at classification?
@@ -104,11 +104,11 @@ For each spp let's create a dataframe of jurisdictions and cell values...
 for(s in spp_vec) {
   ### s <- 'Taxodium mucronatum'
   s_file <- sprintf('%s.tif', str_replace(tolower(s), ' ', '_'))
-  f_out <- here('out/jurisdictions', s_file)
+  f_out <- here('prelim_exploration/out/jurisdictions', s_file)
   if(file.exists(f_out)) next()
   
-  s_hist_rast <- rast(here('out/historical', s_file))
-  s_future_rast <- rast(here('out/future', s_file))
+  s_hist_rast <- rast(here('prelim_exploration/out/historical', s_file))
+  s_future_rast <- rast(here('prelim_exploration/out/future', s_file))
   s_df <- data.frame(values(s_hist_rast), values(s_future_rast), values(states_rast)) %>%
     setNames(c('historical', 'future', 'gn_id')) %>%
     filter(!is.na(gn_id)) %>%
@@ -117,14 +117,14 @@ for(s in spp_vec) {
     group_by(juris) %>%
     summarize(n_historical = sum(historical > .25),
               n_future = sum(future > .5))
-  write_csv(s_df, here('out/jurisdictions', s_file))
+  write_csv(s_df, here('prelim_exploration/out/jurisdictions', s_file))
 }
 ```
 
 ### gather results
 
 ```{r}
-juris_fs <- list.files(here('out/jurisdictions'), full.names = TRUE)
+juris_fs <- list.files(here('prelim_exploration/out/jurisdictions'), full.names = TRUE)
 
 all_juris_df <- lapply(juris_fs, read_csv, show_col_types = FALSE) %>%
   setNames(basename(juris_fs)) %>%
