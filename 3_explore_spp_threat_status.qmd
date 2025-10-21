@@ -1,0 +1,90 @@
+---
+title: "Spp exploration - threatened status"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+```
+
+## Gather maps and aggregate
+
+Grab a sample of species (10 spp for each taxon), gather all future scenario maps and aggregate, summing and dividing by 3 to make a "probability" map for future distributions, and crop to just the lower 48 US states (and a little Canada and Mexico).  Then crop the historical maps to the same extent.  Write out these files to an output directory (`out`).
+
+Why just the lower 48?  Alaska looks like it gets a lot of species from much farther south, which seems questionable.  So let's focus on the same area of interest from the Lawler paper, i.e., lower 48.
+
+### Identify species sample
+
+```{r}
+here_anx <- function(f = '', ...) { 
+  ### create file path to git-annex dir for project
+  f <- paste(f, ..., sep = '/')
+  f <- stringr::str_replace_all(f, '\\/+', '/')
+  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
+  return(f_anx)
+}
+```
+
+List all map files available, and gather info on species, taxon, and scenario from the file path information.
+
+```{r}
+spp_mapfiles <- list.files(here_anx('species_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df <- data.frame(f = spp_mapfiles,
+                         spp = basename(spp_mapfiles) %>%
+                           str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                           str_replace_all('_', ' '),
+                         tax = basename(dirname(spp_mapfiles)))
+
+### sample 10 species per taxon, and identify all scenario maps for each
+set.seed(16)
+spp_sample_df <- spp_all_df %>%
+  select(-f) %>%
+  distinct() %>%
+  group_by(tax) %>%
+  slice_sample(n = 10) %>%
+  ungroup() %>%
+  left_join(spp_all_df)
+```
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Define aggregation function
+agg_scenario <- function(s, df, scenario = 'future') {
+  ### for species s, filter historical map files from df; rasterize; mean
+  
+  if(scenario == 'future') { ### filter to non-Historical
+    s_df <- df %>%
+      filter(spp == s & !str_detect(f, 'Historical'))
+  } else { ### else filter to Historical
+    s_df <- df %>%
+      filter(spp == s & str_detect(f, 'Historical'))
+  }
+  s_map <- rast(s_df$f) %>%
+    crop(us_extent) %>%
+    sum(na.rm = TRUE)
+  s_map <- s_map / nrow(s_df)
+  return(s_map)
+}
+
+### Aggregate over the vector of species names
+spp_vec <- spp_sample_df$spp %>% unique()
+
+future_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- future_rast[[1]]
+plot(x, main = names(future_rast)[1])
+```
