@@ -14,7 +14,7 @@ library(terra)
 library(sf)
 library(rnaturalearth)
 library(here)
-library(iucnredlist)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
 ```
 
 ## Gather data and test IUCN API
@@ -60,7 +60,8 @@ spp_sample_df <- spp_all_df %>%
 We'll use the IUCN api (key required) and their R package (iucnredlist)
 
 ```{r}
-api <- init_api("vYaf91gZRkMfSoFZ6PHNJcmdggV4FW4CJybJ")
+api_key <- Sys.getenv("IUCN_API_KEY") ### usethis::edit_r_environ() to add key to R environment file
+api <- init_api(api_key)
 ```
 
 ```{r}
@@ -104,6 +105,8 @@ iucn_status <- function(api, genus, species){
 # Test function
 # Species 10 (Ptilogonys cinereus does not work) --> need to look into
 iucn_status(api, gns_sample_vec[9], spp_sample_vec[9])
+iucn_status(api, 'Ptiliogonys', 'cinereus')
+### Ptiliogonys cinereus (typo in the data) seems to work!  but we can bet there will be other typos
 ```
 
 ```{r}
@@ -113,6 +116,7 @@ iucn_status_test <- for(i in 1:9){
   print(test)
 }
 ```
+
 ```{r}
 # Loop through function, save as list
 iucn_status_list <- list()
