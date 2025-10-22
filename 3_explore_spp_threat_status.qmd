@@ -14,13 +14,12 @@ library(terra)
 library(sf)
 library(rnaturalearth)
 library(here)
+library(iucnredlist)
 ```
 
-## Gather maps and aggregate
+## Gather data and test IUCN API
 
-Grab a sample of species (10 spp for each taxon), gather all future scenario maps and aggregate, summing and dividing by 3 to make a "probability" map for future distributions, and crop to just the lower 48 US states (and a little Canada and Mexico).  Then crop the historical maps to the same extent.  Write out these files to an output directory (`out`).
-
-Why just the lower 48?  Alaska looks like it gets a lot of species from much farther south, which seems questionable.  So let's focus on the same area of interest from the Lawler paper, i.e., lower 48.
+Grab a sample of species (5 spp for each taxon) and test out IUCN API
 
 ### Identify species sample
 
@@ -45,46 +44,81 @@ spp_all_df <- data.frame(f = spp_mapfiles,
                            str_replace_all('_', ' '),
                          tax = basename(dirname(spp_mapfiles)))
 
-### sample 10 species per taxon, and identify all scenario maps for each
+### sample 5 species per taxon, and identify all scenario maps for each
 set.seed(16)
 spp_sample_df <- spp_all_df %>%
   select(-f) %>%
   distinct() %>%
   group_by(tax) %>%
-  slice_sample(n = 10) %>%
-  ungroup() %>%
-  left_join(spp_all_df)
+  slice_sample(n = 5) %>%
+  ungroup() 
+  #left_join(spp_all_df)
+```
+
+### Pull IUCN threat status
+
+We'll use the IUCN api (key required) and their R package (iucnredlist)
+
+```{r}
+api <- init_api("vYaf91gZRkMfSoFZ6PHNJcmdggV4FW4CJybJ")
 ```
 
 ```{r}
-### set up extent for continental US
-us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+# Test out getting threat information for a single species (not case sensitive)
+spp_test <- assessments_by_name(api, genus = "Canis", species = "lupus")
 
-### Define aggregation function
-agg_scenario <- function(s, df, scenario = 'future') {
-  ### for species s, filter historical map files from df; rasterize; mean
-  
-  if(scenario == 'future') { ### filter to non-Historical
-    s_df <- df %>%
-      filter(spp == s & !str_detect(f, 'Historical'))
-  } else { ### else filter to Historical
-    s_df <- df %>%
-      filter(spp == s & str_detect(f, 'Historical'))
-  }
-  s_map <- rast(s_df$f) %>%
-    crop(us_extent) %>%
-    sum(na.rm = TRUE)
-  s_map <- s_map / nrow(s_df)
-  return(s_map)
-}
-
-### Aggregate over the vector of species names
-spp_vec <- spp_sample_df$spp %>% unique()
-
-future_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df) %>%
-  setNames(spp_vec) %>%
-  rast()
-
-x <- future_rast[[1]]
-plot(x, main = names(future_rast)[1])
+# Looking at spp_test, the latest global assessment is assessment ID 247624660
+assessment <- assessment_data(api, 247624660)
+assessment_clean <- parse_assessment_data(assessment)
 ```
+
+```{r}
+# Test to filter the spp_test df for the latest global threat level for the species
+spp_latest_threat <- spp_test %>% 
+  filter(scopes_code == 1) %>% 
+  filter(year_published == max(year_published))
+```
+
+```{r}
+# Will need to split spp name into genus and species for redlist package
+spp_gns_sample_df <- spp_sample_df %>% 
+  separate(spp, into = c("genus", "species"), sep = " ")
+
+spp_sample_vec <- spp_gns_sample_df$species
+gns_sample_vec <- spp_gns_sample_df$genus
+```
+
+```{r}
+# Write a function to get the most recent, global iucn status for a species
+iucn_status <- function(api, genus, species){
+  # get species info 
+ species_info <- assessments_by_name(api, genus, species) 
+ list_status <- species_info %>% 
+   filter(scopes_code == 1) %>% 
+   filter(year_published == max(year_published))
+ return(list_status$red_list_category_code)
+}
+```
+
+```{r}
+# Test function
+# Species 10 (Ptilogonys cinereus does not work) --> need to look into
+iucn_status(api, gns_sample_vec[9], spp_sample_vec[9])
+```
+
+```{r}
+# Loop through function
+iucn_status_test <- for(i in 1:9){
+  test <- iucn_status(api, gns_sample_vec[i], spp_sample_vec[i])
+  print(test)
+}
+```
+```{r}
+# Loop through function, save as list
+iucn_status_list <- list()
+for(i in 1:9){
+  test <- iucn_status(api, gns_sample_vec[i], spp_sample_vec[i])
+  iucn_status_list[[i]] <- test
+}
+```
+
