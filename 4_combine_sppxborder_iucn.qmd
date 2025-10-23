@@ -216,8 +216,8 @@ iucn_id <- function(api, genus, species){
   # get species info 
  species_info <- assessments_by_name(api, genus, species) 
  list_status <- species_info %>% 
-   filter(scopes_code == 1) %>% 
-   filter(year_published == max(year_published))
+   filter(scopes_code == 1 & latest == TRUE) #%>% 
+   #filter(year_published == max(year_published))
  return(list_status$assessment_id)
 }
 ```
@@ -238,7 +238,7 @@ id_vector <- unlist(iucn_id_list)
 
 ```{r}
 az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
-Aspidoscelis arizonae
+#Aspidoscelis arizonae
 ```
 
 ```{r}
@@ -256,3 +256,5 @@ id_pop_trends <- extract_element(id_data, "population_trend")
 id_names_status <- left_join(id_names, id_iucn_status, by = "assessment_id")
 id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assessment_id")
 ```
+
+# note - Dipodomys ingens (Giant Kangaroo Mouse) endangered in this sample and exiting California into Mexico
