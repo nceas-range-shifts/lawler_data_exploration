@@ -152,3 +152,58 @@ candidae_taxon_status <- left_join(canidae_names, canidae_iucn_status, by = "ass
 ```
 
 ### This could be a method for getting a lot of species information at once using the latest, global assessments. 
+
+```{r}
+# Test out Bermuda
+bm <- assessments_by_group(api, group = "countries", code = "BM", latest = TRUE, wait_time = 0.5)
+```
+
+```{r}
+# Test out Bermuda
+bm_all <- assessments_by_group(api, group = "countries", code = "BM", latest = FALSE, wait_time = 0.5)
+```
+
+### Test out iucn id function where instead of pulling the species IUCN list status, pull the species Assesment ID. 
+### Then can run a bunch of the assessment IDs and get more of the information we're interested in.
+
+```{r}
+# Write a function to get the most recent, global iucn status for a species
+iucn_id <- function(api, genus, species){
+  # get species info 
+ species_info <- assessments_by_name(api, genus, species) 
+ list_status <- species_info %>% 
+   filter(scopes_code == 1) %>% 
+   filter(year_published == max(year_published))
+ return(list_status$assessment_id)
+}
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list <- list()
+for(i in 1:9){
+  test <- iucn_id(api, gns_sample_vec[i], spp_sample_vec[i])
+  iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+id_vector <- unlist(iucn_id_list)
+```
+
+```{r}
+id_data <- assessment_data_many(api, id_vector, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+id_names <- extract_element(id_data, "taxon")
+id_iucn_status <- extract_element(id_data, "red_list_category")
+id_pop_trends <- extract_element(id_data, "population_trend")
+
+id_names_status <- left_join(id_names, id_iucn_status, by = "assessment_id")
+id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assessment_id")
+```
+
+# Note - Anaxyrus californicus (arroyo toad) may be a species that moves between US/MX
