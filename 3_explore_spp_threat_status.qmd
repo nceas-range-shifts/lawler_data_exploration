@@ -76,8 +76,7 @@ assessment_clean <- parse_assessment_data(assessment)
 ```{r}
 # Test to filter the spp_test df for the latest global threat level for the species
 spp_latest_threat <- spp_test %>% 
-  filter(scopes_code == 1) %>% 
-  filter(year_published == max(year_published))
+  filter(scopes_code == 1 & latest == TRUE)
 ```
 
 ```{r}
@@ -95,8 +94,7 @@ iucn_status <- function(api, genus, species){
   # get species info 
  species_info <- assessments_by_name(api, genus, species) 
  list_status <- species_info %>% 
-   filter(scopes_code == 1) %>% 
-   filter(year_published == max(year_published))
+   filter(scopes_code == 1 & latest == TRUE) 
  return(list_status$red_list_category_code)
 }
 ```
@@ -172,8 +170,7 @@ iucn_id <- function(api, genus, species){
   # get species info 
  species_info <- assessments_by_name(api, genus, species) 
  list_status <- species_info %>% 
-   filter(scopes_code == 1) %>% 
-   filter(year_published == max(year_published))
+   filter(scopes_code == 1 & latest == TRUE) 
  return(list_status$assessment_id)
 }
 ```
