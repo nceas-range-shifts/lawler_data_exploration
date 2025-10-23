@@ -126,3 +126,29 @@ for(i in 1:9){
 }
 ```
 
+### Get the latest global assesments for a taxon level (kingdom, phylum, class, order, or family) and then merge data into sample species
+
+```{r}
+plethodontidae <- assessments_by_taxonomy(api, level = "family", name = "plethodontidae", 
+                                          latest = TRUE, scope_code = 1, wait_time = 0.5)
+```
+
+```{r}
+canidae <- assessments_by_taxonomy(api, level = "family", name = "canidae", 
+                                          latest = TRUE, scope_code = 1, wait_time = 0.5)
+```
+
+```{r}
+# Fetch assessment data for assessment IDs
+canidae_data <- assessment_data_many(api, canidae$assessment_id, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the canidae assesments (or any other variable of interest)
+canidae_names <- extract_element(canidae_data, "taxon")
+canidae_iucn_status <- extract_element(canidae_data, "red_list_category")
+
+candidae_taxon_status <- left_join(canidae_names, canidae_iucn_status, by = "assessment_id")
+```
+
+### This could be a method for getting a lot of species information at once using the latest, global assessments. 
