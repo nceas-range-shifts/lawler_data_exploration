@@ -258,3 +258,38 @@ id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assess
 ```
 
 # note - Dipodomys ingens (Giant Kangaroo Mouse) endangered in this sample and exiting California into Mexico
+
+```{r}
+# Merge in entry / exit information 
+entry_exit_iucn <- inner_join((entry_exit %>% 
+                                rename(scientific_name = spp)),
+                             id_names_status_trends)
+```
+
+# note - Fratercula corniculata (horned puffin) is showing up in the historical data in historical data in places like New Mexico ... but less than 10 cells
+
+# What about seeing which species are only native to the three countries?
+
+```{r}
+id_loc <- extract_element(id_data, "locations")
+```
+
+```{r}
+# Add a column for country to merge in country level location information
+# There is some US-state level infomration, but country level should capture what we need for now
+entry_exit_iucn <- entry_exit_iucn %>% 
+  mutate(country = case_when(juris == "Canada" ~ "Canada",
+                             juris == "Mexico" ~ "Mexico",
+                             TRUE ~ "United States"))
+```
+
+```{r}
+entry_exit_iucn_loc <- left_join(entry_exit_iucn, (id_loc %>% 
+                                                      rename(country = description)),
+                                  by = join_by(country, assessment_id))
+
+# There's a few examples here where the species is moving into Canada, so there is no IUCN location information about the species in Canada
+```
+
+
+
