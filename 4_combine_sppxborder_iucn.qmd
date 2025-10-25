@@ -176,22 +176,34 @@ all_juris_df$status %>% table()
 
 ```{r}
 entry_exit <- all_juris_df %>% 
-  filter(status %in% c("entry into new", "exit from historical"))
+  filter(status %in% c("entry into new", "exit from historical")) #%>% 
+  #separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
+  #rename(scientific_name = spp)
+```
+
+```{r}
+#Fix incorrect scientific names for IUCN search
+entry_exit_clean <- entry_exit %>% 
+  mutate(scientific_name = case_when(spp == "Aspidoscelis arizonae" ~ "Aspidoscelis inornatus",
+                                     spp == "Phalacrocorax urile" ~ "Urile urile",
+                                     spp == "Tamias alpinus" ~ "Neotamias alpinus",
+                                     spp == "Zoothera naevia" ~ "Ixoreus naevius",
+                                     TRUE ~ spp)) %>% 
+  separate(scientific_name, into = c("genus", "species"), sep = " ", remove = FALSE)
 ```
 
 ```{r}
 # How many unique species enter/exit jurisdiction in this sample?
-length(unique(entry_exit$spp))
+length(unique(entry_exit_clean$scientific_name))
 # 58
 ```
 
 ```{r}
-entry_exit_summary <- entry_exit %>% 
-  group_by(spp) %>% 
+entry_exit_summary <- entry_exit_clean %>% 
+  group_by(scientific_name, genus, species) %>% 
   # Could entry or exit 
   summarise(juris_count = n()) %>% 
-  ungroup() %>% 
-  separate(spp, into = c("genus", "species"), sep = " ")
+  ungroup() 
 ```
 
 ### Add IUCN information
@@ -223,10 +235,18 @@ iucn_id <- function(api, genus, species){
 ```
 
 ```{r}
+#az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
+#Aspidoscelis arizonae
+#old name is Aspidoscelis inornatus
+az_whiptail <- assessments_by_name(api, "Aspidoscelis","inornatus")
+spp_vec[9] <- "inornatus"
+```
+
+```{r}
 # Loop through function, save as list
 # Issues with Aspidoscelis arizonae
 iucn_id_list <- list()
-for(i in 10:25){
+for(i in 1:length(gns_vec)){
   test <- iucn_id(api, gns_vec[i], spp_vec[i])
   iucn_id_list[[i]] <- test
 }
@@ -237,9 +257,29 @@ id_vector <- unlist(iucn_id_list)
 ```
 
 ```{r}
-az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
+#az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
 #Aspidoscelis arizonae
+#old name is Aspidoscelis inornatus (need to fix in df as well)
+az_whiptail <- assessments_by_name(api, "Aspidoscelis", "inornatus")
+spp_vec[9] <- "inornatus"
 ```
+
+```{r}
+# Urile urile
+gns_vec[36] <- "Urile"
+```
+
+```{r}
+# Neotamias alpinus
+gns_vec[50] <- "Neotamias"
+```
+
+```{r}
+# Ixoreus naevius (Zoothera naevia)
+gns_vec[58] <- "Ixoreus" 
+spp_vec[58] <- "naevius"
+```
+
 
 ```{r}
 # Run the assessment numbers collected from the iucn_id function
@@ -261,9 +301,7 @@ id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assess
 
 ```{r}
 # Merge in entry / exit information 
-entry_exit_iucn <- inner_join((entry_exit %>% 
-                                rename(scientific_name = spp)),
-                             id_names_status_trends)
+entry_exit_iucn <- inner_join(entry_exit_clean, id_names_status_trends, by = "scientific_name")
 ```
 
 # note - Fratercula corniculata (horned puffin) is showing up in the historical data in historical data in places like New Mexico ... but less than 10 cells
@@ -291,5 +329,49 @@ entry_exit_iucn_loc <- left_join(entry_exit_iucn, (id_loc %>%
 # There's a few examples here where the species is moving into Canada, so there is no IUCN location information about the species in Canada
 ```
 
+# Which of the species in the entry/exit df are endemic species? (would be for CA/US/MX)
 
+```{r}
+endemic_species <- entry_exit_iucn_loc %>% 
+  filter(is_endemic == TRUE) 
 
+endemic_species_vec <- unique(endemic_species$scientific_name)
+```
+
+```{r}
+# Filter entry_exit_iucn_loc for the endemic species (want to get all the entries)
+entry_exit_endemic_spp <- entry_exit_iucn_loc %>% 
+  filter(scientific_name %in% endemic_species_vec)
+```
+
+```{r}
+# Stats - table is helpful to view which endemic species are moving between jurisdictions 
+# 17 endemic species in the sample of 58 species entering or exiting jurisdictions
+# Anolis carolinensis, Batrachoseps wrighti (NT), Brodiaea minor, Desmognathus wrighti(NT), Neotamias alpinus, Plethodon shermani (NT) entering CA
+# Plethodon wehrlei entering CA
+# Dipodomys ingens (EN), Microtus breweri (VU), Neotamias alpinus, Plethodon shermani (NT), Plethodon wehrlei entering MX
+# Peromyscus polionotus exiting from CA and MX
+entry_exit_endemic_summary <- entry_exit_endemic_spp %>% 
+  group_by(scientific_name, status, index.y, description.x, index.x.x, description.y,
+           country, is_endemic, origin) %>% 
+  summarize(n_juris = n(),
+            n_historical = sum(n_historical),
+            n_future = sum(n_future)) %>% 
+  ungroup()
+```
+
+```{r}
+# Filter further for those entering/exiting CA and MX
+# 11 species moving in or out of mexico
+entry_exit_CA_MX_summary <- entry_exit_endemic_spp %>% 
+  filter(country != "United States")
+
+# These species are endemic to the US
+CA_MX_summary <- entry_exit_CA_MX_summary %>% 
+  group_by(description.x, juris, status, description.y) %>% 
+  summarize(n_species = n()) %>% 
+  rename(red_list_cat = description.x,
+         population_trend = description.y)
+```
+
+## Next step - add maps for the non-least concern species in the CA_MX_summary table
