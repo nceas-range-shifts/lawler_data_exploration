@@ -194,6 +194,16 @@ entry_exit_clean <- entry_exit %>%
 ```
 
 ```{r}
+# Test out taxize package
+library(taxize)
+#gnr_resolve() depreciated 
+temp <- gna_verifier(c("Aspidoscelis arizonae", "Phalacrocorax urile", "Tamias alpinus", "Zoothera naevia",
+                       "Dipodomys ingens"))
+
+# finds the new names for some, but not all - maybe using the taxon_synonyms from IUCN (below) will help
+```
+
+```{r}
 # How many unique species enter/exit jurisdiction in this sample?
 length(unique(entry_exit_clean$scientific_name))
 # 58
@@ -257,6 +267,8 @@ id_data <- assessment_data_many(api, id_vector, wait_time = 0.5)
 # Extract the IUCN status from all the sample species (or any other variable of interest)
 # Run element_names() to see what you can extract
 id_names <- extract_element(id_data, "taxon")
+# taxon_synonyms might be able to help with some of the scientific name issues
+id_synonyms <- extract_element(id_data, "taxon_synonyms")
 id_iucn_status <- extract_element(id_data, "red_list_category")
 id_pop_trends <- extract_element(id_data, "population_trend")
 
@@ -380,4 +392,5 @@ This subsample, all the endemic, non-least concern species are mammals or amphib
 ```{r}
 print(CA_MX_summary_nonLC)
 ```
+
 
