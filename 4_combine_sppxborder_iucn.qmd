@@ -14,6 +14,7 @@ library(terra)
 library(sf)
 library(rnaturalearth)
 library(here)
+library(cowplot)
 library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
 ```
 
@@ -160,7 +161,7 @@ state_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions,
             .groups = 'drop')
 ```
 
-### Interpret results
+## Interpret results
 
 Interpret historical and future cell counts into entry/exit/no presence/continued presence.  NOTE: probably would want to throw a threshold on the cell counts, like at least 10 cells to actually register...
 
@@ -206,7 +207,7 @@ entry_exit_summary <- entry_exit_clean %>%
   ungroup() 
 ```
 
-### Add IUCN information
+## Add IUCN information
 
 For those species that enter into a new area or exit an area, add IUCN information.
 Based on code in 3_explore_spp_threat_status.qmd
@@ -219,7 +220,7 @@ api <- init_api(api_key)
 ```{r}
 # Need genus and species for redlist package
 gns_vec <- entry_exit_summary$genus
-spp_vec <- entry_exit_summary$species
+species_vec <- entry_exit_summary$species
 ```
 
 ```{r}
@@ -235,19 +236,10 @@ iucn_id <- function(api, genus, species){
 ```
 
 ```{r}
-#az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
-#Aspidoscelis arizonae
-#old name is Aspidoscelis inornatus
-az_whiptail <- assessments_by_name(api, "Aspidoscelis","inornatus")
-spp_vec[9] <- "inornatus"
-```
-
-```{r}
 # Loop through function, save as list
-# Issues with Aspidoscelis arizonae
 iucn_id_list <- list()
-for(i in 1:length(gns_vec)){
-  test <- iucn_id(api, gns_vec[i], spp_vec[i])
+for(i in 1:58){
+  test <- iucn_id(api, gns_vec[i], species_vec[i])
   iucn_id_list[[i]] <- test
 }
 ```
@@ -255,31 +247,6 @@ for(i in 1:length(gns_vec)){
 ```{r}
 id_vector <- unlist(iucn_id_list)
 ```
-
-```{r}
-#az_whiptail <- assessments_by_name(api, "Aspidoscelis", "arizonae")
-#Aspidoscelis arizonae
-#old name is Aspidoscelis inornatus (need to fix in df as well)
-az_whiptail <- assessments_by_name(api, "Aspidoscelis", "inornatus")
-spp_vec[9] <- "inornatus"
-```
-
-```{r}
-# Urile urile
-gns_vec[36] <- "Urile"
-```
-
-```{r}
-# Neotamias alpinus
-gns_vec[50] <- "Neotamias"
-```
-
-```{r}
-# Ixoreus naevius (Zoothera naevia)
-gns_vec[58] <- "Ixoreus" 
-spp_vec[58] <- "naevius"
-```
-
 
 ```{r}
 # Run the assessment numbers collected from the iucn_id function
@@ -297,14 +264,12 @@ id_names_status <- left_join(id_names, id_iucn_status, by = "assessment_id")
 id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assessment_id")
 ```
 
-# note - Dipodomys ingens (Giant Kangaroo Mouse) endangered in this sample and exiting California into Mexico
-
 ```{r}
 # Merge in entry / exit information 
 entry_exit_iucn <- inner_join(entry_exit_clean, id_names_status_trends, by = "scientific_name")
 ```
 
-# note - Fratercula corniculata (horned puffin) is showing up in the historical data in historical data in places like New Mexico ... but less than 10 cells
+note - Fratercula corniculata (horned puffin) is showing up in the historical data in historical data in places like New Mexico ... but less than 10 cells
 
 # What about seeing which species are only native to the three countries?
 
@@ -373,5 +338,46 @@ CA_MX_summary <- entry_exit_CA_MX_summary %>%
   rename(red_list_cat = description.x,
          population_trend = description.y)
 ```
+```{r}
+print(CA_MX_summary)
+```
+## Maps for a few of the species moving into/out of MX or CA
 
-## Next step - add maps for the non-least concern species in the CA_MX_summary table
+Endangered giant kangaroo rate (Dipodomys ingens) moving into MX
+```{r}
+plot(hist_rast$`Dipodomys ingens`, main = "Dipodomys ingens - historical")
+plot(future_rast$`Dipodomys ingens`, main = "Dipodomys ingens - future")
+```
+Near threatened Oregon slender salamander (Batrachoseps wrighti) moving into Canada (population declining)
+```{r}
+# Batrachoseps wrighti (NT) move into Canada, population declining 
+# Oregon slender salamander
+plot(hist_rast$`Batrachoseps wrighti`, main = "Batrachoseps wrighti - historical")
+plot(future_rast$`Batrachoseps wrighti`, main = "Batrachoseps wrighti - future")
+```
+Vulnerable beach vole (Microtus breweri) moving to MX (population stable) 
+(a small portion of historical range was already in CA)
+```{r}
+plot(hist_rast$`Microtus breweri`, main = "Microtus breweri - historical")
+plot(future_rast$`Microtus breweri`, main = "Microtus breweri - future")
+```
+```{r}
+# Filter further for those entering/exiting CA and MX
+# 11 species moving in or out of mexico
+entry_exit_CA_MX_summary_nonLC <- entry_exit_endemic_spp %>% 
+  filter(country != "United States") %>% 
+  filter(description.x != "Least Concern")
+
+# These species are endemic to the US
+CA_MX_summary_nonLC <- entry_exit_CA_MX_summary_nonLC %>% 
+  group_by(class_name, description.x, juris, status, description.y) %>% 
+  summarize(n_species = n()) %>% 
+  rename(red_list_cat = description.x,
+         population_trend = description.y)
+```
+
+This subsample, all the endemic, non-least concern species are mammals or amphibians
+```{r}
+print(CA_MX_summary_nonLC)
+```
+
