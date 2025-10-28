@@ -183,53 +183,16 @@ entry_exit <- all_juris_df %>%
 ```
 
 ```{r}
-# Run species names through taxize 
-temp <- gna_verifier(spp_vec[1:20]) %>% 
+# Run species names through taxize
+# temp is spp_vec[1:30]
+temp_2 <- gna_verifier(spp_vec[31:60]) %>% 
   separate(currentCanonicalSimple, into = c("current_genus", "current_species"), sep = " ", remove = FALSE)
 ```
 
-
 ```{r}
-#Fix incorrect scientific names for IUCN search
-entry_exit_clean <- entry_exit %>% 
-  mutate(scientific_name = case_when(spp == "Aspidoscelis arizonae" ~ "Aspidoscelis inornatus",
-                                     spp == "Phalacrocorax urile" ~ "Urile urile",
-                                     spp == "Tamias alpinus" ~ "Neotamias alpinus",
-                                     spp == "Zoothera naevia" ~ "Ixoreus naevius",
-                                     TRUE ~ spp)) %>% 
-  separate(scientific_name, into = c("genus", "species"), sep = " ", remove = FALSE)
-```
-
-```{r}
-# Test out taxize package
-library(taxize)
-#gnr_resolve() depreciated 
-temp <- gna_verifier(c("Aspidoscelis arizonae", "Phalacrocorax urile", "Tamias alpinus", "Zoothera naevia",
-                       "Dipodomys ingens"))
-
-# finds the new names for some, but not all - maybe using the taxon_synonyms from IUCN (below) will help
-```
-
-```{r}
-library(taxize)
-temp_2 <- gna_verifier(spp_vec[1:50]) %>% 
-  separate(currentCanonicalSimple, into = c("current_genus", "current_species"), sep = " ", remove = FALSE)
-#spp_currentnames <- temp_2$currentCanonicalSimple
-```
-
-
-```{r}
-# How many unique species enter/exit jurisdiction in this sample?
-length(unique(entry_exit_clean$scientific_name))
-# 177
-```
-
-```{r}
-entry_exit_summary <- entry_exit_clean %>% 
-  group_by(scientific_name, genus, species) %>% 
-  # Could entry or exit 
-  summarise(juris_count = n()) %>% 
-  ungroup() 
+# Pull the genus and species names
+gns_vec_current_2 <- temp_2$current_genus
+species_vec_current_2 <- temp_2$current_species
 ```
 
 ## Add IUCN information
@@ -240,14 +203,6 @@ Based on code in 3_explore_spp_threat_status.qmd
 ```{r}
 api_key <- Sys.getenv("IUCN_API_KEY") ### usethis::edit_r_environ() to add key to R environment file
 api <- init_api(api_key)
-```
-
-```{r}
-# Need genus and species for redlist package
-gns_vec <- entry_exit_summary$genus
-species_vec <- entry_exit_summary$species
-gns_vec_current <- temp_2$current_genus
-species_vec_current <- temp_2$current_species
 ```
 
 ```{r}
@@ -263,21 +218,38 @@ iucn_id <- function(api, genus, species){
 ```
 
 ```{r}
+# taxize didn't catch the misspelling for Ptilogonys cinereus (Ptiliogonys)
+gns_vec_current[12] <- "Ptiliogonys"
+# taxize not catching the genus change from Tamias to Neotamias for all chipmunks except the Eastern Chipmunk and Siberian Chipmunk
+gns_vec_current[22] <- "Neotamias"
+gns_vec_current[26] <- "Neotamias"
+
+# Helictotrichon was orignial genus name and correct name for IUCN
+gns_vec_current_2[7] <- "Helictotrichon"
+```
+
+
+```{r}
 # Loop through function, save as list
-iucn_id_list <- list()
-for(i in 16:50){
-  test <- iucn_id(api, gns_vec_current[i], species_vec_current[i])
-  iucn_id_list[[i]] <- test
+iucn_id_list_2 <- list()
+for(i in 1:length(species_vec_current_2)){
+  test <- iucn_id(api, gns_vec_current_2[i], species_vec_current_2[i])
+  iucn_id_list_2[[i]] <- test
 }
 ```
 
 ```{r}
-id_vector <- unlist(iucn_id_list)
+id_vector_2 <- unlist(iucn_id_list_2)
 ```
 
 ```{r}
+id_vector_3 <- c(id_vector, id_vector_2)
+```
+
+
+```{r}
 # Run the assessment numbers collected from the iucn_id function
-id_data <- assessment_data_many(api, id_vector, wait_time = 0.5)
+id_data <- assessment_data_many(api, id_vector_3, wait_time = 0.5)
 ```
 
 ```{r}
@@ -295,10 +267,24 @@ id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assess
 
 ```{r}
 # Merge in entry / exit information 
-entry_exit_iucn <- inner_join(entry_exit_clean, id_names_status_trends, by = "scientific_name")
-```
+# Get the crosswalk of lawler names and taxize names
+spp_taxize_xwlk <- rbind(temp, temp_2) %>% 
+  select(submittedName, currentCanonicalSimple) %>% 
+  # Correct the current_genus, current_species names for which taxize didn't work
+  mutate(scientific_name = case_when(currentCanonicalSimple == "Ptilogonys cinereus" ~ "Ptiliogonys cinereus",
+                                     currentCanonicalSimple == "Tamias sonomae" ~ "Neotamias sonomae",
+                                     currentCanonicalSimple == "Tamias obscurus" ~ "Neotamias obscurus",
+                                     currentCanonicalSimple == "Graphephorum canescens" ~ submittedName,
+                                     TRUE ~ currentCanonicalSimple)) %>% 
+  separate(scientific_name, into = c("genus", "species"), sep = " ", remove = FALSE)
 
-note - Fratercula corniculata (horned puffin) is showing up in the historical data in historical data in places like New Mexico ... but less than 10 cells
+id_names_status_trends_submittednme <- left_join(id_names_status_trends, spp_taxize_xwlk, by = "scientific_name")
+
+entry_exit_clean <- entry_exit %>% 
+  rename(submittedName = spp)
+
+entry_exit_iucn <- inner_join(entry_exit_clean, id_names_status_trends_submittednme, by = "submittedName")
+```
 
 # What about seeing which species are only native to the three countries?
 
@@ -374,8 +360,17 @@ print(CA_MX_summary)
 
 ## Maps for a few of the species moving into/out of MX or CA
 
-Endangered giant kangaroo rate (Dipodomys ingens) moving into MX
+Near threatened Kirtland's snake (Clonophis kirtlandii) moving within US (not a lot of non-least concern in this batch)
+Interesting in that its presence in Canada goes from 88 to 2187 cells which is flagged as continued presence.
 ```{r}
-plot(hist_rast$`Dipodomys ingens`, main = "Dipodomys ingens - historical")
-plot(future_rast$`Dipodomys ingens`, main = "Dipodomys ingens - future")
+plot(hist_rast$`Clonophis kirtlandii`, main = "Clonophis kirtlandii - historical")
+plot(future_rast$`Clonophis kirtlandii`, main = "Clonophis kirtlandii - future")
 ```
+```{r}
+ck <- all_juris_df %>% 
+  filter(spp == "Clonophis kirtlandii")
+sum(ck$n_historical)
+sum(ck$n_future)
+```
+
+
