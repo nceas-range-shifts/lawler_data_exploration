@@ -167,10 +167,18 @@ Interpret historical and future cell counts into entry/exit/no presence/continue
 
 ```{r}
 all_juris_df <- state_spp_list %>%
+  group_by(spp) %>% 
+  mutate(range_historical = sum(n_historical),
+         range_future = sum(n_future),
+         range_ratio = range_future/range_historical,
+         prec_historical = 100*n_historical/sum(n_historical),
+         prec_future = 100*n_future/sum(n_future),
+         prec_pt_change = prec_future - prec_historical) %>% 
   mutate(status = case_when(n_historical == 0 &  n_future > 0 ~ 'entry into new',
                             n_historical > 0  & n_future == 0 ~ 'exit from historical',
                             n_historical == 0 & n_future == 0 ~ 'no presence',
-                            TRUE ~ 'continued presence'))
+                            TRUE ~ 'continued presence')) %>% 
+  ungroup()
 
 all_juris_df$status %>% table()
 ```
@@ -371,6 +379,45 @@ ck <- all_juris_df %>%
   filter(spp == "Clonophis kirtlandii")
 sum(ck$n_historical)
 sum(ck$n_future)
+
+ck_summary <- ck %>% 
+  mutate(prop_historical = n_historical/sum(n_historical),
+         prop_future = n_future/sum(n_future),
+         ratio = prop_future/prop_historical)
 ```
 
+## Look at range changes for Canada and Mexico
+
+```{r}
+canada_df <- all_juris_df %>% 
+  filter(juris == "Canada")
+```
+
+```{r}
+canada_df %>% 
+  filter(status != "no presence") %>% 
+  mutate(spp_name = fct_reorder(spp, prec_pt_change)) %>% 
+  ggplot() +
+  geom_bar(aes(x = spp_name, y = prec_pt_change, fill = status), stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Canada",
+       x = "",
+       y = "% point change from historic to future range")
+```
+```{r}
+mexico_df <- all_juris_df %>% 
+  filter(juris == "Mexico")
+```
+
+```{r}
+mexico_df %>% 
+  filter(status != "no presence") %>% 
+  mutate(spp_name = fct_reorder(spp, prec_pt_change)) %>% 
+  ggplot() +
+  geom_bar(aes(x = spp_name, y = prec_pt_change, fill = status), stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Mexico",
+       x = "",
+       y = "% point change from historic to future range")
+```
 
