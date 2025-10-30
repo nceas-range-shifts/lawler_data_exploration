@@ -193,12 +193,17 @@ entry_exit <- all_juris_df %>%
 ```{r}
 # Run species names through taxize
 # temp is spp_vec[1:30]
+temp <- gna_verifier(spp_vec[1:30]) %>% 
+  separate(currentCanonicalSimple, into = c("current_genus", "current_species"), sep = " ", remove = FALSE)
+
 temp_2 <- gna_verifier(spp_vec[31:60]) %>% 
   separate(currentCanonicalSimple, into = c("current_genus", "current_species"), sep = " ", remove = FALSE)
 ```
 
 ```{r}
 # Pull the genus and species names
+gns_vec_current <- temp$current_genus
+species_vec_current <- temp$current_species
 gns_vec_current_2 <- temp_2$current_genus
 species_vec_current_2 <- temp_2$current_species
 ```
@@ -239,6 +244,12 @@ gns_vec_current_2[7] <- "Helictotrichon"
 
 ```{r}
 # Loop through function, save as list
+iucn_id_list <- list()
+for(i in 1:length(species_vec_current)){
+  test <- iucn_id(api, gns_vec_current[i], species_vec_current[i])
+  iucn_id_list[[i]] <- test
+}
+
 iucn_id_list_2 <- list()
 for(i in 1:length(species_vec_current_2)){
   test <- iucn_id(api, gns_vec_current_2[i], species_vec_current_2[i])
@@ -247,6 +258,7 @@ for(i in 1:length(species_vec_current_2)){
 ```
 
 ```{r}
+id_vector <- unlist(iucn_id_list)
 id_vector_2 <- unlist(iucn_id_list_2)
 ```
 
@@ -334,11 +346,6 @@ entry_exit_endemic_spp <- entry_exit_iucn_loc %>%
 
 ```{r}
 # Stats - table is helpful to view which endemic species are moving between jurisdictions 
-# 17 endemic species in the sample of 58 species entering or exiting jurisdictions
-# Anolis carolinensis, Batrachoseps wrighti (NT), Brodiaea minor, Desmognathus wrighti(NT), Neotamias alpinus, Plethodon shermani (NT) entering CA
-# Plethodon wehrlei entering CA
-# Dipodomys ingens (EN), Microtus breweri (VU), Neotamias alpinus, Plethodon shermani (NT), Plethodon wehrlei entering MX
-# Peromyscus polionotus exiting from CA and MX
 entry_exit_endemic_summary <- entry_exit_endemic_spp %>% 
   group_by(scientific_name, status, index.y, description.x, index.x.x, description.y,
            country, is_endemic, origin) %>% 
@@ -404,6 +411,8 @@ canada_df %>%
        x = "",
        y = "% point change from historic to future range")
 ```
+Clonophis kirtlandii (Kirtland’s snake) goes from having 1% of its range (88/7909) in Canada to 44% (2187/4926) of its range in Canada (furthermore, Kirkland’s snake is generally not accepted to be in Canada yet). It's labeled as 'continued presence.'
+
 ```{r}
 mexico_df <- all_juris_df %>% 
   filter(juris == "Mexico")
