@@ -1,0 +1,346 @@
+---
+title: "IUCN + spp crossing borders - bird traits"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
+library(taxize)
+```
+
+## Gather maps and aggregate
+
+Following the method in 2_combine_spp_scenarios.qmd: 
+Grab a sample of species (10 spp for each taxon), gather all future scenario maps and aggregate, summing and dividing by 3 to make a "probability" map for future distributions, and crop to just the lower 48 US states (and a little Canada and Mexico).  Then crop the historical maps to the same extent.  
+
+### Identify species sample
+
+```{r}
+here_anx <- function(f = '', ...) { 
+  ### create file path to git-annex dir for project
+  f <- paste(f, ..., sep = '/')
+  f <- stringr::str_replace_all(f, '\\/+', '/')
+  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
+  return(f_anx)
+}
+```
+
+List all map files available, and gather info on species, taxon, and scenario from the file path information.
+
+```{r}
+spp_mapfiles <- list.files(here_anx('species_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df <- data.frame(f = spp_mapfiles,
+                         spp = basename(spp_mapfiles) %>%
+                           str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                           str_replace_all('_', ' '),
+                         tax = basename(dirname(spp_mapfiles)))
+
+### sample 100 birds (301 total), and identify all scenario maps for each
+set.seed(20)
+spp_sample_df <- spp_all_df %>%
+  filter(tax == "Birds") %>% 
+  select(-f) %>%
+  distinct() %>%
+  group_by(tax) %>%
+  slice_sample(n = 100) %>%
+  ungroup() %>%
+  left_join(spp_all_df)
+```
+
+### Aggregate future projections
+
+For each species in the sample, aggregate the three future scenarios into a single map.  Crop to the lower continental US states.
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Define aggregation function
+agg_scenario <- function(s, df, scenario = 'future') {
+  ### for species s, filter historical map files from df; rasterize; mean
+  
+  if(scenario == 'future') { ### filter to non-Historical
+    s_df <- df %>%
+      filter(spp == s & !str_detect(f, 'Historical'))
+  } else { ### else filter to Historical
+    s_df <- df %>%
+      filter(spp == s & str_detect(f, 'Historical'))
+  }
+  s_map <- rast(s_df$f) %>%
+    crop(us_extent) %>%
+    sum(na.rm = TRUE)
+  s_map <- s_map / nrow(s_df)
+  return(s_map)
+}
+
+### Aggregate over the vector of species names
+spp_vec <- spp_sample_df$spp %>% unique()
+
+future_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- future_rast[[1]]
+#plot(x, main = names(future_rast)[1])
+```
+
+### crop historical maps
+
+```{r}
+hist_rast <- lapply(spp_vec, FUN = agg_scenario, df = spp_sample_df, 
+                    scenario = 'historical') %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- hist_rast[[1]]
+#plot(x, main = names(hist_rast)[1])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+states_rast <- rasterize(states_sf, hist_rast, field = 'gn_id')
+#plot(states_rast)
+```
+
+## Rough pass at classification?
+
+For each spp let's create a dataframe of jurisdictions and cell values...
+
+```{r}
+extract_jurisdictions <- function(spp, future_r, hist_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_f_r <- future_r[[names(future_r) == spp]]
+  s_h_r <- hist_r[[names(hist_r) == spp]]
+  s_df <- data.frame(values(s_h_r), 
+                     values(s_f_r), 
+                     values(juris_r)) %>%
+    setNames(c('historical', 'future', 'id')) %>%
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>%
+    group_by(id) %>%
+    summarize(n_historical = sum(historical > .25),
+              n_future = sum(future > .5))
+  
+  return(s_df)
+}
+
+state_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions,
+                         future_r = future_rast, 
+                         hist_r = hist_rast,
+                         juris_r = states_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') %>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  group_by(spp, juris) %>%
+  summarize(n_historical = sum(n_historical),
+            n_future = sum(n_future), 
+            .groups = 'drop')
+```
+
+## Interpret results
+
+Interpret historical and future cell counts into entry/exit/no presence/continued presence.  NOTE: probably would want to throw a threshold on the cell counts, like at least 10 cells to actually register...
+
+```{r}
+all_juris_df <- state_spp_list %>%
+  group_by(spp) %>% 
+  mutate(range_historical = sum(n_historical),
+         range_future = sum(n_future),
+         range_ratio = range_future/range_historical,
+         prec_historical = 100*n_historical/sum(n_historical),
+         prec_future = 100*n_future/sum(n_future),
+         prec_pt_change = prec_future - prec_historical) %>% 
+  mutate(status = case_when(n_historical == 0 &  n_future > 0 ~ 'entry into new',
+                            n_historical > 0  & n_future == 0 ~ 'exit from historical',
+                            n_historical == 0 & n_future == 0 ~ 'no presence',
+                            TRUE ~ 'continued presence')) %>% 
+  ungroup()
+
+all_juris_df$status %>% table()
+```
+
+```{r}
+entry_exit <- all_juris_df %>% 
+  filter(status %in% c("entry into new", "exit from historical")) #%>% 
+  #separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
+  #rename(scientific_name = spp)
+```
+
+```{r}
+# Just focusing on country level jurisdiction movement for now
+entry_exit_ca_mx <- entry_exit %>% 
+  mutate(country = case_when(juris == "Canada" ~ "Canada",
+                             juris == "Mexico" ~ "Mexico",
+                             TRUE ~ "United States")) %>% 
+  filter(country != "United States")
+
+spp_vec_ca_mx <- unique(entry_exit_ca_mx$spp)
+```
+
+```{r}
+# Run species names through taxize
+temp <- gna_verifier(spp_vec_ca_mx) %>% 
+  separate(currentCanonicalSimple, into = c("current_genus", "current_species"), sep = " ", remove = FALSE)
+```
+
+```{r}
+# Pull the genus and species names
+gns_vec_current <- temp$current_genus
+species_vec_current <- temp$current_species
+```
+
+## Add IUCN information
+
+For those species that enter into a new area or exit an area, add IUCN information.
+Based on code in 3_explore_spp_threat_status.qmd
+
+```{r}
+api_key <- Sys.getenv("IUCN_API_KEY") ### usethis::edit_r_environ() to add key to R environment file
+api <- init_api(api_key)
+```
+
+```{r}
+# Write a function to get the most recent, global iucn assessment id for each species
+iucn_id <- function(api, genus, species){
+  # get species info 
+ species_info <- assessments_by_name(api, genus, species) 
+ list_status <- species_info %>% 
+   filter(scopes_code == 1 & latest == TRUE) #%>% 
+   #filter(year_published == max(year_published))
+ return(list_status$assessment_id)
+}
+```
+
+```{r}
+# Muscicapa dauurica was orignial species name and correct name for IUCN
+species_vec_current[21] <- "dauurica"
+
+# Taxize didn't catch mispelling of Pica nutalli
+species_vec_current[29] <- "nutalli"
+```
+
+
+```{r}
+# Loop through function, save as list
+iucn_id_list <- list()
+for(i in 1:length(species_vec_current)){
+  test <- iucn_id(api, gns_vec_current[i], species_vec_current[i])
+  iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+id_vector <- unlist(iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+id_data <- assessment_data_many(api, id_vector, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+id_names <- extract_element(id_data, "taxon")
+# taxon_synonyms might be able to help with some of the scientific name issues
+id_synonyms <- extract_element(id_data, "taxon_synonyms")
+id_iucn_status <- extract_element(id_data, "red_list_category")
+id_pop_trends <- extract_element(id_data, "population_trend")
+
+id_names_status <- left_join(id_names, id_iucn_status, by = "assessment_id")
+id_names_status_trends <- left_join(id_names_status, id_pop_trends, by = "assessment_id")
+```
+
+```{r}
+# Merge in entry / exit information 
+# Get the crosswalk of lawler names and taxize names
+spp_taxize_xwlk <- temp %>% 
+  select(submittedName, currentCanonicalSimple) %>% 
+  # Correct the current_genus, current_species names for which taxize didn't work
+  mutate(scientific_name = case_when(currentCanonicalSimple == "Muscicapa latirostris" ~ submittedName,
+                                     currentCanonicalSimple == "Pica nuttalli" ~ "Pica nutalli",
+                                     TRUE ~ currentCanonicalSimple)) %>% 
+  separate(scientific_name, into = c("genus", "species"), sep = " ", remove = FALSE)
+
+id_names_status_trends_submittednme <- left_join(id_names_status_trends, spp_taxize_xwlk, by = "scientific_name")
+
+entry_exit_ca_mx_clean <- entry_exit_ca_mx %>% 
+  rename(submittedName = spp)
+
+entry_exit_iucn <- inner_join(entry_exit_ca_mx_clean , id_names_status_trends_submittednme, by = "submittedName")
+```
+
+# What about seeing which species are only native to the three countries?
+
+```{r}
+id_loc <- extract_element(id_data, "locations")
+```
+
+```{r}
+# 10 species
+us_endemic <- id_loc %>% 
+  # Only country to which species are endemic is the US for this batch of species 
+  filter(is_endemic == TRUE)
+
+# endemic assessment ids
+endemic_ids <- unique(us_endemic$assessment_id)
+```
+
+# Filter the birds for the endemic species
+```{r}
+entry_exit_iucn_endemic <- entry_exit_iucn %>% 
+  filter(assessment_id %in% endemic_ids)
+```
+```{r}
+plot(hist_rast$`Ammodramus maritimus`, main = "Ammodramus maritimus - historical")
+plot(future_rast$`Ammodramus maritimus`, main = "Ammodramus maritimus - future")
+```
+
+## Try merging in the AVONET traits data 
+# https://figshare.com/s/b990722d72a26b5bfead 
+
+```{r}
+library(janitor)
+# Merge in AVONET dataset (reading in BirdLife tab, which should match with IUCN names)
+avonet <- read_csv(here("data-laa", "AVONET-birdlife-tab-supplementary-dataset-1.csv")) %>% 
+  clean_names()
+```
+
+```{r}
+entry_exit_endemic_clean <- entry_exit_iucn_endemic %>% 
+  select(scientific_name, juris:sis_id, description.x, description.y) %>% 
+  rename(redlist_status = description.x, 
+         pop_trend = description.y)
+```
+
+```{r}
+entry_exit_endemic_traits <- left_join(entry_exit_endemic_clean, (avonet %>% rename(scientific_name = species1)))
+```
+
+# Next steps - take a look at the trait data that was merged in 
+
