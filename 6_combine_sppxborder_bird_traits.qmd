@@ -344,3 +344,115 @@ entry_exit_endemic_traits <- left_join(entry_exit_endemic_clean, (avonet %>% ren
 
 # Next steps - take a look at the trait data that was merged in 
 
+How well do the names in the Avon trait data match with the Lawler bird names? Avon trait data should have the IUCN names that will run through their api. 
+
+```{r}
+birds_all_df <- spp_all_df %>% 
+  filter(tax == "Birds")
+```
+
+```{r}
+birds_all <- birds_all_df %>% 
+  group_by(spp, tax) %>% 
+  summarize(files = n())
+```
+
+```{r}
+# See how well the Avonet trait data merges in 
+# 270 of 301 have matches - could work with these species for now since they should be able to match wiht IUCN
+birds_avonet <- left_join(birds_all, (avonet %>% rename(spp = species1)))
+```
+
+```{r}
+lawler_avvonet_birds <- birds_avonet %>% 
+  drop_na(sequence)
+
+lawler_avvonet_birds_vec <- lawler_avvonet_birds$spp
+```
+
+```{r}
+# Select the 270 birds from the dataset that have avonet matches 
+spp_birds_df <- spp_all_df %>%
+  filter(spp %in% lawler_avvonet_birds_vec) %>% 
+  left_join(spp_all_df)
+```
+
+```{r}
+### Aggregate over the vector of species names
+birds_future_rast <- lapply(lawler_avvonet_birds_vec, FUN = agg_scenario, df = spp_birds_df) %>%
+  setNames(lawler_avvonet_birds_vec) %>%
+  rast()
+
+#x <- future_rast[[1]]
+#plot(x, main = names(future_rast)[1])
+
+```
+
+### crop historical maps
+
+```{r}
+birds_hist_rast <- lapply(lawler_avvonet_birds_vec, FUN = agg_scenario, df = spp_birds_df, 
+                    scenario = 'historical') %>%
+  setNames(lawler_avvonet_birds_vec) %>%
+  rast()
+
+#x <- birds_hist_rast[[1]]
+#plot(x, main = names(hist_rast)[1])
+
+```
+
+```{r}
+bird_state_spp_list <- lapply(lawler_avvonet_birds_vec, FUN = extract_jurisdictions,
+                         future_r = birds_future_rast, 
+                         hist_r = birds_hist_rast,
+                         juris_r = states_rast) %>%
+  setNames(lawler_avvonet_birds_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') %>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  group_by(spp, juris) %>%
+  summarize(n_historical = sum(n_historical),
+            n_future = sum(n_future), 
+            .groups = 'drop')
+```
+
+## Interpret results
+
+Interpret historical and future cell counts into entry/exit/no presence/continued presence.  NOTE: probably would want to throw a threshold on the cell counts, like at least 10 cells to actually register...
+
+```{r}
+birds_all_juris_df <- bird_state_spp_list %>%
+  group_by(spp) %>% 
+  mutate(range_historical = sum(n_historical),
+         range_future = sum(n_future),
+         range_ratio = range_future/range_historical,
+         prec_historical = 100*n_historical/sum(n_historical),
+         prec_future = 100*n_future/sum(n_future),
+         prec_pt_change = prec_future - prec_historical) %>% 
+  mutate(status = case_when(n_historical == 0 &  n_future > 0 ~ 'entry into new',
+                            n_historical > 0  & n_future == 0 ~ 'exit from historical',
+                            n_historical == 0 & n_future == 0 ~ 'no presence',
+                            TRUE ~ 'continued presence')) %>% 
+  ungroup()
+
+birds_all_juris_df$status %>% table()
+```
+
+note - could do some of the trait data stats with the table above (and then also add in IUCN data)
+
+```{r}
+birds_all_juris_avonet <- left_join(birds_all_juris_df, (avonet %>% rename(spp = species1)))
+```
+```{r}
+# entry/exit stats (can see if statistically different later)
+# also averaging all the jurisdictions together (maybe should only include each bird once)
+entry_exit_bird_stats <- birds_all_juris_avonet %>% 
+  group_by(status) %>% 
+  summarise(mean_mass = mean(mass),
+            mean_tarsus_length = mean(tarsus_length))
+
+entry_exit_bird_stats 
+```
+
+
