@@ -14,6 +14,8 @@ library(terra)
 library(sf)
 library(rnaturalearth)
 library(here)
+
+source('common_fxns.R')
 ```
 
 ## Gather maps and aggregate
@@ -24,20 +26,10 @@ Why just the lower 48?  Alaska looks like it gets a lot of species from much far
 
 ### Identify species sample
 
-```{r}
-here_anx <- function(f = '', ...) { 
-  ### create file path to git-annex dir for project
-  f <- paste(f, ..., sep = '/')
-  f <- stringr::str_replace_all(f, '\\/+', '/')
-  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
-  return(f_anx)
-}
-```
-
 List all map files available, and gather info on species, taxon, and scenario from the file path information.
 
 ```{r}
-spp_mapfiles <- list.files(here_anx('species_projections'), 
+spp_mapfiles <- list.files(here_anx('data_lawler_2020/species_projections'), 
                            full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_all_df <- data.frame(f = spp_mapfiles,
                          spp = basename(spp_mapfiles) %>%

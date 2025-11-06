@@ -17,10 +17,95 @@ library(here)
 source('common_fxns.R')
 ```
 
-### Read in geodatabase and explore
+## Read in geodatabase and explore
 
 ```{r}
 wdpa_gdb <- here_anx('data_wdpa_2025/WDPA_Nov2025_Public.gdb')
-wdpa_sf <- read_sf(wdpa_gdb)
+wdpa_layers <- st_layers(wdpa_gdb)
+wdpa_sf <- st_read(dsn = wdpa_gdb, layer = 'WDPA_poly_Nov2025') %>%
+  janitor::clean_names()
+### names(wdpa_sf)
+#  [1] "wdpaid"      "wdpa_pid"    "pa_def"      "name"        "orig_name"   "desig"       "desig_eng"  
+#  [8] "desig_type"  "iucn_cat"    "int_crit"    "marine"      "rep_m_area"  "gis_m_area"  "rep_area"   
+# [15] "gis_area"    "no_take"     "no_tk_area"  "status"      "status_yr"   "gov_type"    "own_type"   
+# [22] "mang_auth"   "mang_plan"   "verif"       "metadataid"  "sub_loc"     "parent_iso3" "iso3"       
+# [29] "supp_info"   "cons_obj"    "SHAPE"
+```
+
+### Explore attributes
+
+We may want to rasterize by certain attributes: 
+
+* IUCN category
+    * "Recommendations: When grouping data according to IUCN management category, users are advised not to exclude any categories unless there is a clear reason for doing so. Records where no IUCN management category has been provided (IUCN_CAT = ‘Not Reported’, ‘Not Assigned’ or ‘Not Applicable’) should be grouped into one or included in the analysis as three separate groups. If any subsets of the data are excluded, this should be clearly stated when the results are presented."
+* take/no take?
+* status year
+    * "Recommendations: Users might want to decide to include legally-designated sites only in their analyses. In that case all sites where STATUS = ‘Proposed’, ‘Established’, and ‘Not Reported’ should be removed. It is important to note that the removal of proposed sites may exclude some sites that are delivering conservation on the ground. These might still be identified as proposed because of the time lag between changes occurring and being reported to the databases, or because it may take several years for a proposed site to be legally-designated, even though it is operational. If users are interested in sites that meet the protected area or OECM definitions, regardless of legal status, they should not exclude ‘Established’ sites from their analyses."
+    * "The ‘Status Year’ (STATUS_YR) field identifies the year in which a site’s current status (STATUS field) came into effect. It does not refer to the year in which the data was updated in the WDPA or OECM database (this information is available in the Source Table)."
+    * "Recommendations: The Status Year can be used to create graphs showing designation of protected areas or OECMs over time. It cannot be used to show historical change in protection over a geographic area, because degazetted sites are removed from the databases (Lewis et al. 2017)."
+
+```{r}
+wdpa_df <- st_drop_geometry(wdpa_sf)
+
+### wdpa_df$iucn_cat %>% table()
+#             Ia             Ib             II            III             IV Not Applicable 
+#          22739           4163           6804          18422          88925            612 
+#   Not Assigned   Not Reported              V             VI 
+#          43901          46443          52276           9438
+### wdpa_df$status %>% table()
+#   Adopted   Designated  Established    Inscribed Not Reported     Proposed 
+#         34       289011         3197          266           32         1183 
+
+```
+
+## Rasterize polygons
+
+For our rasters, let's choose one of the future projections - doesnt' matter which, we are only using the extent/bounding box/crs/resolution, not the information within.  For our analyses we have generally cropped these further, but just in case let's go the full extent.
+
+```{r}
+spp_mapfiles <- list.files(here_anx('data_lawler_2020/species_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_mapf_df <- data.frame(f = spp_mapfiles) %>%
+  mutate(scenario = ifelse(str_detect(f, 'Historical'), 'historical', basename(dirname(dirname(f)))))
+
+base_f <- spp_mapf_df %>% filter(scenario != 'historical') %>% pull(f) %>% .[1]
+
+base_r <- rast(base_f)
+base_r
+```
+
+Verify the CRS matches (even if extent/etc does not).
+
+```{r}
+crs(wdpa_sf, proj = TRUE)
+crs(base_r,  proj = TRUE)
+```
+
+Good enough!
+
+### Crop WDPA polygon to North America
+
+Use base raster to define bounding box for cropping to North America.  Check for valid geometries and if necessary repair them.  This could also require consideration of S2 settings.  Might it be faster to first filter by countries in North America?  I got a list of country/ISO3/continents from Gemini.
+
+```{r}
+country_codes <- read_csv(here('_raw_data/country_iso3.csv'))
+nam_codes <- country_codes %>%
+  filter(continent == 'North America')
+wdpa_nam_sf <- wdpa_sf %>% filter(iso3 %in% nam_codes$iso3)
+
+sf::sf_use_s2(FALSE)     ### turn off S2 spherical geometry, just use GEOS library
+# invalid <- !st_is_valid(wdpa_nam_sf)  ### sum 0 - no invalid geoms
+```
+
+
+### Raster of protected area category
+
+Convert IUCN category into an integer; for `Ia` and `Ib` assign 1; for `Not Applicable`, `Not Assigned`, `Not Reported` assign 7
+```{r}
+iucn_cat_sf <- wdpa_sf %>%
+  mutate(iucn_cat_num = case_when(str_detect(iucn_cat, 'Not') ~ 'VII',
+                                  iucn_cat %in% c('Ia', 'Ib') ~  'I',
+                                  TRUE ~ iucn_cat)) %>%
+  mutate(iucn_cat_num = as.numeric(as.roman(iucn_cat_num)))
 ```
 
