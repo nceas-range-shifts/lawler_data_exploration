@@ -19,16 +19,10 @@ library(here)
 Let's pull all maps (historical + 3 future scenarios) for 1 species randomly selected from each taxon.  Examine maps to ensure same CRS/resolution etc.
 
 ```{r}
-here_anx <- function(f = '', ...) { 
-  ### create file path to git-annex dir for project
-  f <- paste(f, ..., sep = '/')
-  f <- stringr::str_replace_all(f, '\\/+', '/')
-  f_anx <- sprintf('/home/shares/usgs-cap-rangeshifts/data_lawler_2020/%s', f)
-  return(f_anx)
-}
+source('common_fxns.R')
 
 
-sample_maps <- list.files(here_anx('species_projections'), 
+sample_maps <- list.files(here_anx('data_lawler_2020/species_projections'), 
                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_df <- data.frame(f = sample_maps,
                      spp = basename(sample_maps) %>%

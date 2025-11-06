@@ -1,0 +1,26 @@
+---
+title: "Examine WDPA data and rasterize"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(here)
+
+source('common_fxns.R')
+```
+
+### Read in geodatabase and explore
+
+```{r}
+wdpa_gdb <- here_anx('data_wdpa_2025/WDPA_Nov2025_Public.gdb')
+wdpa_sf <- read_sf(wdpa_gdb)
+```
+
