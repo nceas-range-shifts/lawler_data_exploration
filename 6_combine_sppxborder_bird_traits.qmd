@@ -449,10 +449,76 @@ birds_all_juris_avonet <- left_join(birds_all_juris_df, (avonet %>% rename(spp =
 # also averaging all the jurisdictions together (maybe should only include each bird once)
 entry_exit_bird_stats <- birds_all_juris_avonet %>% 
   group_by(status) %>% 
+  # AVONET paper maps out hwi, relative beak length, and relative tarsus length (would need to calculate the relative values)
   summarise(mean_mass = mean(mass),
-            mean_tarsus_length = mean(tarsus_length))
+            mean_hand_wing_index = mean(hand_wing_index),
+            mean_tarsus_length = mean(tarsus_length),
+            mean_beak_length_culmen = mean(beak_length_culmen))
 
 entry_exit_bird_stats 
+```
+
+```{r}
+entry_exit_bird_canada <- birds_all_juris_avonet %>% 
+  filter(juris == "Canada") %>% 
+  group_by(status) %>% 
+  # AVONET paper maps out hwi, relative beak length, and relative tarsus length (would need to calculate the relative values)
+  summarise(mean_mass = mean(mass),
+            mean_hand_wing_index = mean(hand_wing_index),
+            mean_tarsus_length = mean(tarsus_length),
+            mean_beak_length_culmen = mean(beak_length_culmen))
+```
+
+
+```{r}
+ggplot(data = birds_all_juris_avonet %>% filter(juris == "Canada") %>% filter(status != "no presence")) +
+  geom_point(aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  labs(title = "Canada")
+```
+
+```{r}
+ggplot(data = birds_all_juris_avonet %>% filter(juris == "Mexico") %>% filter(status != "no presence")) +
+  geom_point(aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  labs(title = "Mexico")
+```
+
+```{r}
+ggplot(data = lawler_avvonet_birds) +
+  geom_density(aes(x = hand_wing_index))
+```
+## Add in IUCN info
+
+```{r}
+lawler_avvonet_birds_gns_spp <- lawler_avvonet_birds %>% 
+  separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
+  rename(scientific_name = spp)
+```
+
+
+```{r}
+# Pull the genus and species names
+birds_gns <- lawler_avvonet_birds_gns_spp$genus
+birds_species <- lawler_avvonet_birds_gns_spp$species
+```
+
+# Amazilia beryllina [9] should be Saucerottia beryllina
+
+```{r}
+# Loop through function, save as list
+bird_iucn_id_list <- list()
+for(i in 1:length(birds_species)){
+  test <- iucn_id(api, birds_gns[i], birds_species[i])
+  bird_iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+id_vector <- unlist(iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+id_data <- assessment_data_many(api, id_vector, wait_time = 0.5)
 ```
 
 
