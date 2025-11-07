@@ -83,9 +83,9 @@ crs(base_r,  proj = TRUE)
 
 Good enough!
 
-### Crop WDPA polygon to North America
+### Filter WDPA polygon to North America
 
-Use base raster to define bounding box for cropping to North America.  Check for valid geometries and if necessary repair them.  This could also require consideration of S2 settings.  Might it be faster to first filter by countries in North America?  I got a list of country/ISO3/continents from Gemini.
+To reduce the computational complexity, reduce the WDPA dataset to just North America.  Check for valid geometries and if necessary repair them.  This could also require consideration of S2 settings.  Faster to just filter by countries in North America rather than `st_crop()`.  I got a list of country/ISO3/continents from Gemini.
 
 ```{r}
 country_codes <- read_csv(here('_raw_data/country_iso3.csv'))
@@ -95,17 +95,81 @@ wdpa_nam_sf <- wdpa_sf %>% filter(iso3 %in% nam_codes$iso3)
 
 sf::sf_use_s2(FALSE)     ### turn off S2 spherical geometry, just use GEOS library
 # invalid <- !st_is_valid(wdpa_nam_sf)  ### sum 0 - no invalid geoms
+
+wdpa_nam_sf$status %>% table()
+
+### Remove those not in "Designated", "Established", "Inscribed", "Adopted" categories.
+ok_status <- c("Designated", "Established", "Inscribed", "Adopted")
+wdpa_nam_sf <- wdpa_nam_sf %>% 
+  filter(status %in% ok_status)
 ```
+
+### Raster of stacked protected areas?
+
+There are likely places where multiple jurisdictions offer some sort of protection.  How prevalent is this?
+
+```{r}
+pa_count_f <- here('_spatial/pa_count.tif')
+
+if(!file.exists(pa_count_f)) {
+  pa_count_sf <- wdpa_nam_sf
+  
+  pa_count_r <- rasterize(x = pa_count_sf, y = base_r, field = 'wdpaid', fun = 'count')
+  writeRaster(pa_count_r, pa_count_f)
+}
+
+pa_count_r <- rast(pa_count_f)
+plot(pa_count_r, main = 'Protected area count')
+
+```
+
+### Raster of designated year
+
+**Proposed**: The protected area or OECM is in the process of being legally/formally designated It should be noted that sites may sometimes be functioning as protected areas or OECMs while proposed, as the legal processes of designation may take a long time.
+**Inscribed**: Only applicable to protected areas designated under the World Heritage Convention.
+**Adopted**: Only applicable to protected areas designated as Specially Protected Area of Marine Importance under the Barcelona Convention.
+**Designated**: The protected area or OECM is recognized or dedicated through legal/formal means. Implies specific binding commitment to conservation in the long term.
+**Established**: The protected area or OECM is recognized or dedicated through other effective means. Implies commitment to conservation outcomes in the long term, but not necessarily with legal or formal recognition.
+
+For now, for simplicity, just choose the oldest established year.  For ones listed as 0, assign to 1799 (arbitrarily, just shy of minimum non-0 entry)
+
+```{r}
+status_yr_f <- here('_spatial/status_year.tif')
+
+# wdpa_nam_sf$status_yr %>% hist()
+if(!file.exists(status_yr_f)) {
+  status_yr_sf <- wdpa_nam_sf %>%
+    mutate(status_yr = ifelse(status_yr == 0, 1799, status_yr))
+  
+  status_yr_r <- rasterize(x = status_yr_sf, y = base_r, field = 'status_yr', fun = 'min')
+  writeRaster(status_yr_r, status_yr_f)
+}
+
+status_yr_r <- rast(status_yr_f)
+plot(status_yr_r, main = 'Protected area first status year')
+```
+
 
 
 ### Raster of protected area category
 
-Convert IUCN category into an integer; for `Ia` and `Ib` assign 1; for `Not Applicable`, `Not Assigned`, `Not Reported` assign 7
+Convert IUCN category into an integer; for `Ia` and `Ib` assign 1; for `Not Applicable`, `Not Assigned`, `Not Reported` assign 7.  
+
 ```{r}
-iucn_cat_sf <- wdpa_sf %>%
-  mutate(iucn_cat_num = case_when(str_detect(iucn_cat, 'Not') ~ 'VII',
-                                  iucn_cat %in% c('Ia', 'Ib') ~  'I',
-                                  TRUE ~ iucn_cat)) %>%
-  mutate(iucn_cat_num = as.numeric(as.roman(iucn_cat_num)))
+iucn_cat_f <- here('_spatial/iucn_cat.tif')
+
+if(!file.exists(iucn_cat_f)) {
+  iucn_cat_sf <- wdpa_nam_sf %>%
+    mutate(iucn_cat_num = case_when(str_detect(iucn_cat, 'Not') ~ 'VII',
+                                    iucn_cat %in% c('Ia', 'Ib') ~  'I',
+                                    TRUE ~ iucn_cat)) %>%
+    mutate(iucn_cat_num = as.numeric(as.roman(iucn_cat_num)))
+  
+  iucn_cat_r <- rasterize(x = iucn_cat_sf, y = base_r, field = 'iucn_cat_num', fun = 'min')
+  writeRaster(iucn_cat_r, iucn_cat_f)
+}
+
+iucn_cat_r <- rast(iucn_cat_f)
+plot(iucn_cat_r, main = 'IUCN Protected Area categories')
 ```
 
