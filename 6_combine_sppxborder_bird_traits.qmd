@@ -481,6 +481,108 @@ ggplot(data = birds_all_juris_avonet %>% filter(juris == "Mexico") %>% filter(st
   geom_point(aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
   labs(title = "Mexico")
 ```
+## Test out plotting convex hulls around the point data
+```{r}
+# Canada data
+ca_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Canada") %>% 
+  filter(status != "no presence")
+
+# Canada hull data 
+ca_hull <- ca_data %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = ca_data, aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  geom_polygon(data = ca_hull, aes(x = hand_wing_index, y = beak_length_culmen, fill = status), alpha = 0.3) +
+  labs(title = "Canada")
+```
+
+```{r}
+# Mexico data
+mx_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Mexico") %>% 
+  filter(status != "no presence")
+
+# Mexico hull data 
+mx_hull <- mx_data %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mx_data, aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  geom_polygon(data = mx_hull, aes(x = hand_wing_index, y = beak_length_culmen, fill = status), alpha = 0.3) +
+  labs(title = "Mexico")
+```
+
+```{r}
+# Washington data
+wa_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Washington") %>% 
+  filter(status != "no presence")
+
+# Washington hull data 
+wa_hull <- wa_data %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = wa_data, aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  geom_polygon(data = wa_hull, aes(x = hand_wing_index, y = beak_length_culmen, fill = status), alpha = 0.3) +
+  labs(title = "Washington")
+```
+```{r}
+# Michigan data
+mi_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Michigan") %>% 
+  filter(status != "no presence")
+
+# Michigan hull data 
+mi_hull <- mi_data %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mi_data, aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  geom_polygon(data = mi_hull, aes(x = hand_wing_index, y = beak_length_culmen, fill = status), alpha = 0.3) +
+  labs(title = "Michigan")
+```
+## Try with some categorical variables - looks strange, and have to use numbers as categories
+
+```{r}
+# Michigan data
+mi_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Michigan") %>% 
+  filter(status != "no presence")
+
+# Michigan hull data 
+mi_hull_migration <- mi_data %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, migration))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mi_data, aes(x = migration, y = hand_wing_index, color = status)) +
+  geom_polygon(data = mi_hull, aes(x = migration, y = hand_wing_index, fill = status), alpha = 0.3) +
+  labs(title = "Michigan")
+```
+
+
 
 ```{r}
 ggplot(data = lawler_avvonet_birds) +
