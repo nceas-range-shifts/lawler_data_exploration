@@ -526,6 +526,7 @@ ggplot() +
 # Washington data
 wa_data <- birds_all_juris_avonet %>% 
   filter(juris == "Washington") %>% 
+  #filter(trophic_niche == "Omnivore") %>%
   filter(status != "no presence")
 
 # Washington hull data 
@@ -545,6 +546,7 @@ ggplot() +
 # Michigan data
 mi_data <- birds_all_juris_avonet %>% 
   filter(juris == "Michigan") %>% 
+  #filter(trophic_niche == "Invertivore") %>% 
   filter(status != "no presence")
 
 # Michigan hull data 
@@ -560,6 +562,80 @@ ggplot() +
   geom_polygon(data = mi_hull, aes(x = hand_wing_index, y = beak_length_culmen, fill = status), alpha = 0.3) +
   labs(title = "Michigan")
 ```
+## Test out breaking down the data further by filtering for trophic niche (following Stewart 2022)
+
+```{r}
+# Mexico hull data - by trophic niche
+mx_hull_niche <- mx_data %>% 
+  group_by(trophic_niche) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mx_data, aes(x = hand_wing_index, y = beak_length_culmen,
+                                 color = trophic_niche,
+                                 shape = status)) +
+  geom_polygon(data = mx_hull_niche, aes(x = hand_wing_index, y = beak_length_culmen, fill = trophic_niche), 
+               alpha = 0.3) +
+  labs(title = "Mexico")
+```
+```{r}
+# Canada hull data - by trophic niche
+ca_hull_niche <- ca_data %>% 
+  group_by(trophic_niche) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = ca_data, aes(x = hand_wing_index, y = beak_length_culmen,
+                                 color = trophic_niche,
+                                 shape = status)) +
+  geom_polygon(data = ca_hull_niche, aes(x = hand_wing_index, y = beak_length_culmen, fill = trophic_niche), 
+               alpha = 0.3) +
+  labs(title = "Canada")
+```
+```{r}
+# Michigan hull data - by trophic niche
+mi_hull_niche <- mi_data %>% 
+  group_by(trophic_niche) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mi_data, aes(x = hand_wing_index, y = beak_length_culmen,
+                                 color = trophic_niche,
+                                 shape = status)) +
+  geom_polygon(data = mi_hull_niche, aes(x = hand_wing_index, y = beak_length_culmen, fill = trophic_niche), 
+               alpha = 0.3) +
+  labs(title = "Michigan")
+```
+
+
+```{r}
+# Michigan hull data - invertivore
+mi_hull_invertivore <- mi_data %>% 
+  filter(trophic_niche == "Invertivore") %>% 
+  group_by(status) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = (mi_data %>% filter(trophic_niche == "Invertivore")),
+             aes(x = hand_wing_index, y = beak_length_culmen, color = status)) +
+  geom_polygon(data = mi_hull_invertivore, aes(x = hand_wing_index, y = beak_length_culmen, fill = status),
+               alpha = 0.3) +
+  labs(title = "Michigan - invertivore")
+```
+
+
 ## Try with some categorical variables - looks strange, and have to use numbers as categories
 
 ```{r}
