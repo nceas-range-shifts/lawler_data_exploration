@@ -634,28 +634,180 @@ ggplot() +
                alpha = 0.3) +
   labs(title = "Michigan - invertivore")
 ```
-
-
-## Try with some categorical variables - looks strange, and have to use numbers as categories
+# What if instead you map the traits of the historical (exit + continued) and future (continued + entry)
 
 ```{r}
-# Michigan data
-mi_data <- birds_all_juris_avonet %>% 
-  filter(juris == "Michigan") %>% 
-  filter(status != "no presence")
+# Michigan hull data - invertivore (historical vs. future)
+mi_hull_invertivore_hist <- mi_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "entry into new") %>% 
+  mutate(hist_or_future = "historical")
 
+mi_hull_invertivore_future <- mi_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "exit from historical") %>% 
+  mutate(hist_or_future = "future")
+
+mi_hull_invertivore_hist_future <- rbind(mi_hull_invertivore_hist, mi_hull_invertivore_future)
+
+mi_hull_invertivore_hist_future_chull <- mi_hull_invertivore_hist_future %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mi_hull_invertivore_hist_future ,
+             aes(x = hand_wing_index, y = beak_length_culmen, color = hist_or_future,
+                 shape = status)) +
+  geom_polygon(data = mi_hull_invertivore_hist_future_chull,
+               aes(x = hand_wing_index, y = beak_length_culmen, fill = hist_or_future),
+               alpha = 0.3) +
+  labs(title = "Michigan - invertivore")
+```
+
+```{r}
+# Canada hull data - invertivore (historical vs. future)
+ca_hull_invertivore_hist <- ca_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "entry into new") %>% 
+  mutate(hist_or_future = "historical")
+
+ca_hull_invertivore_future <- ca_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "exit from historical") %>% 
+  mutate(hist_or_future = "future")
+
+ca_hull_invertivore_hist_future <- rbind(ca_hull_invertivore_hist, ca_hull_invertivore_future)
+
+ca_hull_invertivore_hist_future_chull <- ca_hull_invertivore_hist_future %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = ca_hull_invertivore_hist_future ,
+             aes(x = hand_wing_index, y = beak_length_culmen, color = hist_or_future,
+                 shape = status)) +
+  geom_polygon(data = ca_hull_invertivore_hist_future_chull,
+               aes(x = hand_wing_index, y = beak_length_culmen, fill = hist_or_future),
+               alpha = 0.3) +
+  labs(title = "Canada - invertivore",
+       color = "",
+       shape = "",
+       fill = "")
+```
+```{r}
+# Mexico hull data - invertivore (historical vs. future)
+mx_hull_invertivore_hist <- mx_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "entry into new") %>% 
+  mutate(hist_or_future = "historical")
+
+mx_hull_invertivore_future <- mx_data %>% 
+  filter(trophic_niche == "Invertivore",
+         status != "exit from historical") %>% 
+  mutate(hist_or_future = "future")
+
+mx_hull_invertivore_hist_future <- rbind(mx_hull_invertivore_hist, mx_hull_invertivore_future)
+
+mx_hull_invertivore_hist_future_chull <- mx_hull_invertivore_hist_future %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(hand_wing_index, beak_length_culmen))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mx_hull_invertivore_hist_future ,
+             aes(x = hand_wing_index, y = beak_length_culmen, color = hist_or_future,
+                 shape = status)) +
+  geom_polygon(data = mx_hull_invertivore_hist_future_chull,
+               aes(x = hand_wing_index, y = beak_length_culmen, fill = hist_or_future),
+               alpha = 0.3) +
+  labs(title = "Mexico - invertivore",
+       color = "",
+       shape = "",
+       fill = "")
+```
+
+## Try with some categorical variables - have to use numbers as categories
+
+```{r}
 # Michigan hull data 
-mi_hull_migration <- mi_data %>% 
-  group_by(status) %>% 
+mx_hull_invertivore_hist_future_migration <- mx_hull_invertivore_hist_future %>% 
+  group_by(hist_or_future) %>% 
   slice(chull(hand_wing_index, migration))
 
 ```
 
 ```{r}
 ggplot() +
-  geom_point(data = mi_data, aes(x = migration, y = hand_wing_index, color = status)) +
-  geom_polygon(data = mi_hull, aes(x = migration, y = hand_wing_index, fill = status), alpha = 0.3) +
-  labs(title = "Michigan")
+  geom_point(data = mx_hull_invertivore_hist_future, aes(x = migration, y = hand_wing_index, 
+                                                         color = hist_or_future,
+                                                         shape = status)) +
+  geom_polygon(data = mx_hull_invertivore_hist_future_migration, aes(x = migration, y = hand_wing_index,
+                                                                     fill = hist_or_future), alpha = 0.3) +
+  labs(title = "Michigan - invertivore")
+```
+
+```{r}
+# Canada hull data 
+ca_hull_invertivore_hist_future_migration <- ca_hull_invertivore_hist_future %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(hand_wing_index, migration))
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = ca_hull_invertivore_hist_future, aes(x = migration, y = hand_wing_index, 
+                                                         color = hist_or_future,
+                                                         shape = status)) +
+  geom_polygon(data = ca_hull_invertivore_hist_future_migration, aes(x = migration, y = hand_wing_index,
+                                                                     fill = hist_or_future), alpha = 0.3) +
+  labs(title = "Canada - invertivore")
+```
+
+```{r}
+mi_data_niche_num <- mi_data %>% 
+  mutate(trophic_niche_num = case_when(trophic_niche == "Vertivore" ~ 1,
+                                       trophic_niche == "Aquatic predator" ~ 2,
+                                       trophic_niche == "Omnivore" ~ 3,
+                                       trophic_niche == "Herbivore terrestrial" ~ 4,
+                                       trophic_niche == "Invertivore" ~ 5,
+                                       trophic_niche == "Herbivore aquatic" ~ 6,
+                                       trophic_niche == "Granivore" ~ 7,))
+```
+
+```{r}
+# Michigan hull data - invertivore (historical vs. future)
+mi_hull_hist <- mi_data_niche_num %>% 
+  filter(status != "entry into new") %>% 
+  mutate(hist_or_future = "historical")
+
+mi_hull_future <- mi_data_niche_num %>% 
+  filter(status != "exit from historical") %>% 
+  mutate(hist_or_future = "future")
+
+mi_hull_hist_future <- rbind(mi_hull_hist, mi_hull_future)
+
+mi_hull_hist_future_chull <- mi_hull_hist_future %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(trophic_niche_num, beak_length_culmen))
+```
+
+```{r}
+ggplot() +
+  geom_point(data = mi_hull_hist_future, aes(x = trophic_niche_num, y = beak_length_culmen, 
+                                                         color = trophic_niche,
+                                                         shape = status)) +
+  geom_polygon(data = mi_hull_hist_future_chull, aes(x = trophic_niche_num, y = beak_length_culmen,
+                                                                     fill = hist_or_future), alpha = 0.3) +
+  labs(title = "Michigan - trophic niche") 
 ```
 
 
