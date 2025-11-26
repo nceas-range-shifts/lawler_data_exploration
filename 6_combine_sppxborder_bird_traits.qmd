@@ -809,6 +809,50 @@ ggplot() +
                                                                      fill = hist_or_future), alpha = 0.3) +
   labs(title = "Michigan - trophic niche") 
 ```
+## Test out PCA 
+```{r}
+library(ggfortify)
+```
+
+```{r}
+# First will just use the continuous variables 
+# Let's test invertivores in Canada
+ca_pca_invertivore_logged <- ca_hull_invertivore_hist_future %>% 
+  select(c(spp, hist_or_future, beak_length_culmen, tarsus_length, wing_length, hand_wing_index, tail_length, mass)) %>% 
+  # log transform in preparation for PCA
+  mutate(across(c(beak_length_culmen:mass), log))
+  
+```
+
+```{r}
+# centered at zero (center = TRUE) and z-transformed (scale = TRUE)
+pca_ca_invertivore <- prcomp(ca_pca_invertivore_logged[3:7], center = TRUE, scale = TRUE )
+```
+
+```{r}
+summary(pca_ca_invertivore)
+```
+```{r}
+autoplot(pca_ca_invertivore,
+         data = ca_pca_invertivore_logged,
+         color = "hist_or_future",
+         loadings = TRUE,
+         loadings.label = TRUE)
+```
+
+# Stopping 11/25
+# Following Casey's code here to add the convex hulls to above diagram 
+# Then will see how these species show up in IUCN data (threatened vs. not threatened)
+
+```{r}
+# Convert results into data frame
+ca_invert_pca_df <- as.data.frame(pca_ca_invertivore$x) %>% 
+  mutate(spp = ca_pca_invertivore_logged$spp,
+         hist_or_future = ca_pca_invertivore_logged$hist_or_future)
+
+ca_invert_pca_hull <- ca_invert_pca_df %>% 
+```
+
 
 
 
