@@ -840,8 +840,7 @@ autoplot(pca_ca_invertivore,
          loadings.label = TRUE)
 ```
 
-# Stopping 11/25
-# Following Casey's code here to add the convex hulls to above diagram 
+# Following Casey's code to add the convex hulls to above diagram 
 # Then will see how these species show up in IUCN data (threatened vs. not threatened)
 
 ```{r}
@@ -850,11 +849,114 @@ ca_invert_pca_df <- as.data.frame(pca_ca_invertivore$x) %>%
   mutate(spp = ca_pca_invertivore_logged$spp,
          hist_or_future = ca_pca_invertivore_logged$hist_or_future)
 
-ca_invert_pca_hull <- ca_invert_pca_df %>% 
+ca_invert_pca_hull <- ca_invert_pca_df %>%
+  arrange(hist_or_future, PC1, PC2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(PC1, PC2))
+```
+
+```{r}
+# Scale factor for loadings
+ca_invert_scale <- min(max(abs(ca_invert_pca_df$PC1)), max(abs(ca_invert_pca_df$PC2))) / 
+  max(abs(pca_ca_invertivore$rotation[, 1:2]))
+
+# Get rotation dataframe for loadings (arrows)
+ca_invert_rot_df <- data.frame(pca_ca_invertivore$rotation %>% round(4) *
+                                 ca_invert_scale) %>% 
+  mutate(query = rownames(.))
 ```
 
 
+```{r}
+ggplot(ca_invert_pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 fill = hist_or_future,
+                 stroke = 1)) +
+  geom_segment(data = ca_invert_rot_df, x = 0, y = 0,
+               aes(xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_invert_rot_df, aes(label = query))+
+  geom_polygon(data = ca_invert_pca_hull,
+               aes(x = PC1, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.25) +
+  labs(title = "Canada invertivores - historical and future PCA")
+```
 
+## Add in IUCN info to the PCA 
+
+```{r}
+ca_invert_gns_spp <- ca_invert_pca_df %>% 
+  separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
+  rename(scientific_name = spp)
+```
+
+```{r}
+# Pull the genus and species names
+ca_invert_gns <- ca_invert_gns_spp$genus
+ca_invert_species <- ca_invert_gns_spp$species
+```
+
+```{r}
+# Loop through function, save as list
+ca_invert_iucn_id_list <- list()
+for(i in 1:length(ca_invert_species)){
+  test <- iucn_id(api, ca_invert_gns[i], ca_invert_species[i])
+  ca_invert_iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+ca_invert_id_vector <- unlist(ca_invert_iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+# 54 unique assessment IDs (have species repeaeted in historic and future)
+ca_invert_id_data <- assessment_data_many(api, ca_invert_id_vector, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+ca_invert_names <- extract_element(ca_invert_id_data, "taxon")
+ca_invert_status <- extract_element(ca_invert_id_data, "red_list_category")
+ca_invert_trends <- extract_element(ca_invert_id_data, "population_trend")
+
+ca_invert_names_status <- left_join(ca_invert_names, ca_invert_status, by = "assessment_id")
+ca_invert_names_status_trends <- left_join(ca_invert_names_status, ca_invert_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+ca_invert_iucn_clean <- ca_invert_names_status_trends %>% 
+  dplyr::select(scientific_name, description.x, description.y, threatened) %>% 
+  rename(spp = scientific_name, 
+         iucn_status = description.x,
+         iucn_trend = description.y)
+```
+
+```{r}
+ca_invert_pca_df_iucn <- left_join(ca_invert_pca_df, ca_invert_iucn_clean)
+```
+
+```{r}
+ggplot(ca_invert_pca_df_iucn, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 shape = threatened), size = 2.5) +
+  geom_segment(data = ca_invert_rot_df, x = 0, y = 0,
+               aes(xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_invert_rot_df, aes(label = query))+
+  geom_polygon(data = ca_invert_pca_hull,
+               aes(x = PC1, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.25) +
+  labs(title = "Canada invertivores - historical and future PCA")
+```
+
+
+### Old code
 
 ```{r}
 ggplot(data = lawler_avvonet_birds) +
