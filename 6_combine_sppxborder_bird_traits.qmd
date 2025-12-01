@@ -853,6 +853,11 @@ ca_invert_pca_hull <- ca_invert_pca_df %>%
   arrange(hist_or_future, PC1, PC2) %>% 
   group_by(hist_or_future) %>% 
   slice(chull(PC1, PC2))
+
+ca_invert_pca_hull_32 <- ca_invert_pca_df %>%
+  arrange(hist_or_future, PC3, PC2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(PC3, PC2))
 ```
 
 ```{r}
@@ -942,7 +947,7 @@ ca_invert_pca_df_iucn <- left_join(ca_invert_pca_df, ca_invert_iucn_clean)
 ```
 
 ```{r}
-ggplot(ca_invert_pca_df_iucn, aes(x = PC1, y = PC2)) +
+p12 <- ggplot(ca_invert_pca_df_iucn, aes(x = PC1, y = PC2)) +
   geom_point(aes(color = hist_or_future,
                  shape = threatened), size = 2.5) +
   geom_segment(data = ca_invert_rot_df, x = 0, y = 0,
@@ -952,8 +957,123 @@ ggplot(ca_invert_pca_df_iucn, aes(x = PC1, y = PC2)) +
   geom_polygon(data = ca_invert_pca_hull,
                aes(x = PC1, y = PC2,
                    color = hist_or_future, fill = hist_or_future), alpha = 0.25) +
-  labs(title = "Canada invertivores - historical and future PCA")
+  labs(title = "Canada invertivores")
 ```
+
+```{r}
+p32 <- ggplot(ca_invert_pca_df_iucn, aes(x = PC3, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 shape = threatened), size = 2.5) +
+  geom_segment(data = ca_invert_rot_df, x = 0, y = 0,
+               aes(xend = PC3, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_invert_rot_df, aes(label = query))+
+  geom_polygon(data = ca_invert_pca_hull_32,
+               aes(x = PC3, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.25) +
+  labs(title = "")
+```
+
+```{r}
+plot_grid(p12 + theme(legend.position = 'none'), p32 + theme(axis.title.y = element_blank()), rel_widths = c(2, 3))
+```
+
+```{r}
+# First three PCs explain 94.4% of the variation in data 
+scree_df <- data.frame(PC = paste0('PC', 1:length(pca_ca_invertivore$sdev)),
+                       pct = (pca_ca_invertivore$sdev)^2 / sum((pca_ca_invertivore$sdev)^2)) %>%
+  mutate(PC = fct_inorder(PC),
+         lbl = paste0(round(pct * 100, 1), '%'),
+         cumsum = cumsum(pct))
+
+ggplot(scree_df, aes(x = PC, y = pct)) +
+  geom_col() +
+  geom_text(aes(label = lbl), vjust = 0, nudge_y = .01)
+```
+
+# Test out Michigan invertivores
+
+```{r}
+# First will just use the continuous variables 
+# Let's test invertivores in Canada
+mi_pca_invertivore_logged <- mi_hull_invertivore_hist_future %>% 
+  # drop "Vireo magister" since it only has 1 cell in Michigan in future and is a Mexican species
+  filter(spp != "Vireo magister") %>% 
+  select(c(spp, hist_or_future, beak_length_culmen, tarsus_length, wing_length, hand_wing_index, tail_length, mass)) %>% 
+  # log transform in preparation for PCA
+  mutate(across(c(beak_length_culmen:mass), log))
+  
+```
+
+```{r}
+# centered at zero (center = TRUE) and z-transformed (scale = TRUE)
+pca_mi_invertivore <- prcomp(mi_pca_invertivore_logged[3:7], center = TRUE, scale = TRUE )
+```
+
+```{r}
+summary(pca_mi_invertivore)
+```
+
+```{r}
+autoplot(pca_mi_invertivore,
+         data = mi_pca_invertivore_logged,
+         color = "hist_or_future",
+         loadings = TRUE,
+         loadings.label = TRUE)
+```
+
+```{r}
+# Convert results into data frame
+mi_invert_pca_df <- as.data.frame(pca_mi_invertivore$x) %>% 
+  mutate(spp = mi_pca_invertivore_logged$spp,
+         hist_or_future = mi_pca_invertivore_logged$hist_or_future)
+
+mi_invert_pca_hull <- mi_invert_pca_df %>%
+  arrange(hist_or_future, PC1, PC2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(PC1, PC2))
+```
+
+```{r}
+# Scale factor for loadings
+mi_invert_scale <- min(max(abs(mi_invert_pca_df$PC1)), max(abs(mi_invert_pca_df$PC2))) / 
+  max(abs(pca_mi_invertivore$rotation[, 1:2]))
+
+# Get rotation dataframe for loadings (arrows)
+mi_invert_rot_df <- data.frame(pca_mi_invertivore$rotation %>% round(4) *
+                                 mi_invert_scale) %>% 
+  mutate(query = rownames(.))
+```
+
+```{r}
+# Are the michigan species already in the pulled data 
+#yes
+mi_species <- unique(mi_invert_pca_df$spp)
+
+mi_species_iucn <- ca_invert_iucn_clean %>% 
+  filter(spp %in% mi_species)
+```
+
+```{r}
+mi_invert_pca_df_iucn <- left_join(mi_invert_pca_df, ca_invert_iucn_clean)
+```
+
+```{r}
+mi_p12 <- ggplot(mi_invert_pca_df_iucn, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 shape = threatened), size = 2.5) +
+  geom_segment(data = mi_invert_rot_df, x = 0, y = 0,
+               aes(xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = mi_invert_rot_df, aes(label = query))+
+  geom_polygon(data = mi_invert_pca_hull,
+               aes(x = PC1, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.25) +
+  labs(title = "Michigan invertivores")
+
+mi_p12 
+```
+
 
 
 ### Old code
