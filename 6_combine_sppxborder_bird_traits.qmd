@@ -991,6 +991,148 @@ ggplot(scree_df, aes(x = PC, y = pct)) +
   geom_text(aes(label = lbl), vjust = 0, nudge_y = .01)
 ```
 
+# Test out Canada birds that don't migrate and assign binary variable for diet type
+```{r}
+ca_sed <- ca_data %>% 
+  # Migration == 1 is sedentary lifestyle
+  filter(migration == 1) %>% 
+  mutate(trophic_level = tolower(trophic_level)) %>% 
+  mutate(trophic_level_value =1) %>% 
+  # binary variable for trophic level (carnivore, herbivore, omnivore, scavenger)
+  pivot_wider(names_from = trophic_level,
+              values_from = trophic_level_value,
+              values_fill = 0)
+  
+```
+
+```{r}
+# Canada sedentary - (historical vs. future)
+ca_sed_hist <- ca_sed %>% 
+  filter(status != "entry into new") %>% 
+  mutate(hist_or_future = "historical")
+
+ca_sed_future <- ca_sed%>% 
+  filter(status != "exit from historical") %>% 
+  mutate(hist_or_future = "future")
+
+ca_sed_hist_future <- rbind(ca_sed_hist, ca_sed_future)
+```
+
+
+```{r}
+# Prep for PCA
+ca_pca_sed_logged <- ca_sed_hist_future %>% 
+  select(c(spp, hist_or_future, beak_length_culmen, tarsus_length, wing_length, hand_wing_index, tail_length, mass, carnivore, herbivore, omnivore, scavenger)) %>% 
+  # log transform in preparation for PCA
+  mutate(across(c(beak_length_culmen:mass), log))
+  
+```
+
+```{r}
+# centered at zero (center = TRUE) and z-transformed (scale = TRUE)
+pca_ca_sed<- prcomp(ca_pca_sed_logged[3:12], center = TRUE, scale = TRUE )
+```
+
+```{r}
+summary(pca_ca_sed)
+```
+
+```{r}
+autoplot(pca_ca_sed,
+         data = ca_pca_sed_logged,
+         color = "hist_or_future",
+         loadings = TRUE,
+         loadings.label = TRUE)
+```
+
+```{r}
+# Convert results into data frame
+ca_sed_pca_df <- as.data.frame(pca_ca_sed$x) %>% 
+  mutate(spp = ca_pca_sed_logged$spp,
+         hist_or_future = ca_pca_sed_logged$hist_or_future)
+```
+
+```{r}
+ca_sed_pca_hull <- ca_sed_pca_df %>%
+  arrange(hist_or_future, PC1, PC2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(PC1, PC2))
+
+ca_sed_pca_hull_32 <- ca_sed_pca_df %>%
+  arrange(hist_or_future, PC3, PC2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(PC3, PC2))
+```
+
+```{r}
+# Scale factor for loadings
+ca_sed_scale <- min(max(abs(ca_sed_pca_df$PC1)), max(abs(ca_sed_pca_df$PC2))) / 
+  max(abs(pca_ca_sed$rotation[, 1:2]))
+
+# Get rotation dataframe for loadings (arrows)
+ca_sed_rot_df <- data.frame(pca_ca_sed$rotation %>% round(4) *
+                                 ca_sed_scale) %>% 
+  mutate(query = rownames(.))
+```
+
+
+```{r}
+ggplot(ca_sed_pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 fill = hist_or_future,
+                 stroke = 1), alpha = 0.5) +
+  geom_segment(data = ca_sed_rot_df, x = 0, y = 0,
+               aes(xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_sed_rot_df, aes(label = query))+
+  geom_polygon(data = ca_sed_pca_hull,
+               aes(x = PC1, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.2) +
+  labs(title = "Canada non-migratory - historical and future PCA")
+```
+
+
+
+```{r}
+ca_sed_gns_spp <- ca_sed_pca_df %>% 
+  separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
+  rename(scientific_name = spp)
+```
+
+```{r}
+# Pull the genus and species names
+ca_sed_gns <- ca_sed_gns_spp$genus
+ca_sed_species <- ca_sed_gns_spp$species
+```
+
+```{r}
+# Amazilia beryllina [2] should be Saucerottia beryllina
+# Falcipennis canadensis [30] should be Canachites canadensis
+ca_sed_gns[2] <- "Saucerottia"
+ca_sed_gns[30] <- "Canachites"
+# stopped at 40
+```
+
+```{r}
+# Loop through function, save as list
+ca_sed_iucn_id_list <- list()
+for(i in 1:length(ca_sed_species)){
+  test <- iucn_id(api, ca_sed_gns[i], ca_sed_species[i])
+  ca_sed_iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+ca_invert_id_vector <- unlist(ca_invert_iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+# 54 unique assessment IDs (have species repeaeted in historic and future)
+ca_invert_id_data <- assessment_data_many(api, ca_invert_id_vector, wait_time = 0.5)
+```
+
+
 # Test out Michigan invertivores
 
 ```{r}
