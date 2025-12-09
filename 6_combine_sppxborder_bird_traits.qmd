@@ -1096,7 +1096,10 @@ ggplot(ca_sed_pca_df, aes(x = PC1, y = PC2)) +
 ```{r}
 ca_sed_gns_spp <- ca_sed_pca_df %>% 
   separate(spp, into = c("genus", "species"), sep = " ", remove = FALSE) %>% 
-  rename(scientific_name = spp)
+  rename(scientific_name = spp) %>% 
+  group_by(scientific_name, genus, species) %>% 
+  summarise(count = n()) %>% 
+  ungroup()
 ```
 
 ```{r}
@@ -1107,10 +1110,11 @@ ca_sed_species <- ca_sed_gns_spp$species
 
 ```{r}
 # Amazilia beryllina [2] should be Saucerottia beryllina
-# Falcipennis canadensis [30] should be Canachites canadensis
+# Amazilia violiceps [3] should be Leucolia violiceps
+# Falcipennis canadensis [36] should be Canachites canadensis
 ca_sed_gns[2] <- "Saucerottia"
-ca_sed_gns[30] <- "Canachites"
-# stopped at 40
+ca_sed_gns[3] <- "Leucolia"
+ca_sed_gns[36] <- "Canachites"
 ```
 
 ```{r}
@@ -1123,15 +1127,77 @@ for(i in 1:length(ca_sed_species)){
 ```
 
 ```{r}
-ca_invert_id_vector <- unlist(ca_invert_iucn_id_list)
+ca_sed_id_vector <- unlist(ca_sed_iucn_id_list)
 ```
 
 ```{r}
 # Run the assessment numbers collected from the iucn_id function
 # 54 unique assessment IDs (have species repeaeted in historic and future)
-ca_invert_id_data <- assessment_data_many(api, ca_invert_id_vector, wait_time = 0.5)
+ca_sed_id_data <- assessment_data_many(api, ca_sed_id_vector, wait_time = 0.5)
 ```
 
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+ca_sed_names <- extract_element(ca_sed_id_data, "taxon")
+ca_sed_status <- extract_element(ca_sed_id_data, "red_list_category")
+ca_sed_trends <- extract_element(ca_sed_id_data, "population_trend")
+
+ca_sed_names_status <- left_join(ca_sed_names, ca_sed_status, by = "assessment_id")
+ca_sed_names_status_trends <- left_join(ca_sed_names_status, ca_sed_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+ca_sed_iucn_clean <- ca_sed_names_status_trends %>% 
+  dplyr::select(scientific_name, description.x, description.y, threatened) %>% 
+  rename(spp = scientific_name, 
+         iucn_status = description.x,
+         iucn_trend = description.y) %>% 
+  # return scientific names to Lawler dataset
+  mutate(spp = case_when(spp == "Saucerottia beryllina" ~ "Amazilia beryllina",
+                         spp == "Leucolia violiceps" ~"Amazilia violiceps",
+                         spp == "Canachites canadensis" ~ "Falcipennis canadensis",
+                         TRUE ~ spp))
+```
+
+```{r}
+ca_sed_pca_df_iucn <- left_join(ca_sed_pca_df, ca_sed_iucn_clean)
+```
+
+```{r}
+sed_p12 <- ggplot(ca_sed_pca_df_iucn, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 shape = threatened), size = 2.5, alpha = 0.5) +
+  geom_segment(data = ca_sed_rot_df, x = 0, y = 0,
+               aes(xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_sed_rot_df, aes(label = query))+
+  geom_polygon(data = ca_sed_pca_hull,
+               aes(x = PC1, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.2) +
+  labs(title = "Canada non-migratory")
+```
+
+```{r}
+sed_p32 <- ggplot(ca_sed_pca_df_iucn, aes(x = PC3, y = PC2)) +
+  geom_point(aes(color = hist_or_future,
+                 shape = threatened), size = 2.5, alpha = 0.5) +
+  geom_segment(data = ca_sed_rot_df, x = 0, y = 0,
+               aes(xend = PC3, yend = PC2),
+               arrow = arrow(length = unit(.1, 'inches'))) +
+  geom_text(data = ca_sed_rot_df, aes(label = query))+
+  geom_polygon(data = ca_sed_pca_hull_32,
+               aes(x = PC3, y = PC2,
+                   color = hist_or_future, fill = hist_or_future), alpha = 0.2) +
+  labs(title = "")
+```
+
+```{r}
+plot_grid(sed_p12 + theme(legend.position = 'none'), sed_p32 + theme(axis.title.y = element_blank()), rel_widths = c(2, 3.6))
+```
 
 # Test out Michigan invertivores
 
