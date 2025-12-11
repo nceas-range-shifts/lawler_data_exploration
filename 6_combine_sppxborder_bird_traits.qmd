@@ -1164,6 +1164,17 @@ ca_sed_iucn_clean <- ca_sed_names_status_trends %>%
 ```
 
 ```{r}
+ca_sed_iucn_count <- left_join(ca_sed_hist_future, ca_sed_iucn_clean) %>% 
+  group_by(hist_or_future, threatened) %>% 
+  summarize(n_carnivore = sum(carnivore),
+            n_herbivore = sum(herbivore),
+            n_omnivore = sum(omnivore),
+            n_scavenger = sum(scavenger),
+            n_total = n()) %>% 
+  ungroup()
+```
+
+```{r}
 ca_sed_pca_df_iucn <- left_join(ca_sed_pca_df, ca_sed_iucn_clean)
 ```
 
