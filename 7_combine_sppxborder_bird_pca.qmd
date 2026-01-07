@@ -417,3 +417,92 @@ sed_p32 <- ggplot(ca_sed_pca_df_iucn, aes(x = PC3, y = PC2)) +
 ```{r}
 plot_grid(sed_p12 + theme(legend.position = 'none'), sed_p32 + theme(axis.title.y = element_blank()), rel_widths = c(2, 3.6))
 ```
+
+# Test out using categorical variables in MCA
+
+```{r}
+library(MASS)
+```
+
+```{r}
+# Filter the Canada sedentary birds so that it is just the categorical variables 
+```
+
+```{r}
+# Canada data
+ca_data <- birds_all_juris_avonet %>% 
+  filter(juris == "Canada") %>% 
+  filter(status != "no presence")
+```
+
+```{r}
+ca_sed_cat <- ca_data %>% 
+  # Migration == 1 is sedentary lifestyle
+  filter(migration == 1) %>% 
+  # categorical variables include habitat, tropic niche, and lifestyle
+  dplyr::select(spp, habitat, trophic_niche, primary_lifestyle)
+
+# Add whether spp are historic or future
+ca_sed_cat_hist_fut <- left_join(ca_sed_cat, 
+                                 (ca_sed_hist_future %>% 
+                                    dplyr::select(spp, hist_or_future)))
+```
+
+```{r}
+# Create dataframe of factors (required for MASS:mca)
+ca_sed_mca_prep <- ca_sed_cat_hist_fut[2:4] %>% 
+  lapply(., as.factor) %>% 
+  as.data.frame()
+```
+
+```{r}
+# Number of categories per variable
+cats = apply(ca_sed_mca_prep, 2, function(x) nlevels(as.factor(x)))
+cats
+```
+
+```{r}
+# MCA
+ca_sed_mca <- mca(ca_sed_mca_prep)
+```
+
+```{r}
+# Test out plotting
+# Variable coordinates
+ca_sed_mca_var_df <- data.frame(ca_sed_mca$cs, Variable = rep(names(cats), cats))
+# Observation coordinates 
+ca_sed_mca_obs_df <- data.frame(ca_sed_mca$rs) %>% 
+  mutate(hist_or_future = ca_sed_hist_future$hist_or_future)
+
+# MCA plot
+ggplot(data = ca_sed_mca_var_df, aes(x = X1, y = X2, label = rownames(ca_sed_mca_var_df))) +
+  geom_hline(yintercept = 0, color = "gray") +
+  geom_vline(xintercept = 0, color = "gray") +
+  geom_text(aes(color = Variable)) +
+  ggtitle("MCA plot of non-migratory Canada birds")
+```
+
+```{r}
+ca_sed_mca_hull <- ca_sed_mca_obs_df %>%
+  arrange(hist_or_future, X1, X2) %>% 
+  group_by(hist_or_future) %>% 
+  slice(chull(X1, X2))
+
+```
+
+```{r}
+ggplot(data = ca_sed_mca_obs_df, aes(x = X1, y = X2)) +
+  geom_hline(yintercept = 0, color = "gray") +
+  geom_vline(xintercept = 0, color = "gray") +
+  geom_point(aes(color = hist_or_future), alpha = 0.5) +
+  geom_polygon(data = ca_sed_mca_hull,
+               aes(x = X1, y = X2,
+                   fill = hist_or_future), alpha = 0.25) +
+  geom_text(data = ca_sed_mca_var_df,
+            aes(x = X1, y = X2, 
+                label = rownames(ca_sed_mca_var_df), color = Variable)) +
+  labs(title = "MCA plot of non-migratory Canada birds",
+       fill = "",
+       color = "")
+```
+
