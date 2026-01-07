@@ -17,6 +17,8 @@ library(here)
 library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
 library(taxize)
 library(janitor)
+library(ggfortify)
+library(cowplot)
 ```
 
 This document is a streamlined version of 6_combine_sppxborder_bird_traits.qmd
