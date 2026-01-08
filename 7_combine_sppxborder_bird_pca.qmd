@@ -468,14 +468,17 @@ ca_sed_mca <- mca(ca_sed_mca_prep)
 
 ```{r}
 # Test out plotting
-# Variable coordinates
-ca_sed_mca_var_df <- data.frame(ca_sed_mca$cs, Variable = rep(names(cats), cats))
-# Observation coordinates 
+# Variable coordinates (adjectives are the columns (cs))
+ca_sed_mca_var_df <- data.frame(ca_sed_mca$cs, Variable = rep(names(cats), cats),
+                                Variable_value = (rownames(ca_sed_mca$cs))) %>% 
+  mutate(Variable_value = sub('.*\\.', '', Variable_value))
+
+# Observation coordinates (individual observations are the rows (rs))
 ca_sed_mca_obs_df <- data.frame(ca_sed_mca$rs) %>% 
   mutate(hist_or_future = ca_sed_hist_future$hist_or_future)
 
 # MCA plot
-ggplot(data = ca_sed_mca_var_df, aes(x = X1, y = X2, label = rownames(ca_sed_mca_var_df))) +
+ggplot(data = ca_sed_mca_var_df, aes(x = X1, y = X2, label = Variable_value)) +
   geom_hline(yintercept = 0, color = "gray") +
   geom_vline(xintercept = 0, color = "gray") +
   geom_text(aes(color = Variable)) +
@@ -494,15 +497,17 @@ ca_sed_mca_hull <- ca_sed_mca_obs_df %>%
 ggplot(data = ca_sed_mca_obs_df, aes(x = X1, y = X2)) +
   geom_hline(yintercept = 0, color = "gray") +
   geom_vline(xintercept = 0, color = "gray") +
-  geom_point(aes(color = hist_or_future), alpha = 0.5) +
+  geom_point(aes(color = hist_or_future), alpha = 0.2, size = 2.5) +
   geom_polygon(data = ca_sed_mca_hull,
                aes(x = X1, y = X2,
-                   fill = hist_or_future), alpha = 0.25) +
+                   color = hist_or_future), alpha = 0) +
   geom_text(data = ca_sed_mca_var_df,
             aes(x = X1, y = X2, 
-                label = rownames(ca_sed_mca_var_df), color = Variable)) +
+                label = Variable_value, color = Variable)) +
   labs(title = "MCA plot of non-migratory Canada birds",
        fill = "",
-       color = "")
+       color = "") +
+  theme_bw()
 ```
+
 
