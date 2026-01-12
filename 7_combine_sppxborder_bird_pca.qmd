@@ -1,5 +1,5 @@
 ---
-title: "IUCN + spp crossing - PCA clean"
+title: "IUCN + spp crossing - PCA & MCA clean"
 format: 
   html:
     embed-resources: true
@@ -482,7 +482,10 @@ ggplot(data = ca_sed_mca_var_df, aes(x = X1, y = X2, label = Variable_value)) +
   geom_hline(yintercept = 0, color = "gray") +
   geom_vline(xintercept = 0, color = "gray") +
   geom_text(aes(color = Variable)) +
-  ggtitle("MCA plot of non-migratory Canada birds")
+  ggtitle("MCA plot of non-migratory Canada birds") +
+  scale_x_continuous(limits = c(-0.20, 0.05)) +
+  theme_bw() +
+  theme(legend.position = "bottom")
 ```
 
 ```{r}
@@ -504,10 +507,12 @@ ggplot(data = ca_sed_mca_obs_df, aes(x = X1, y = X2)) +
   geom_text(data = ca_sed_mca_var_df,
             aes(x = X1, y = X2, 
                 label = Variable_value, color = Variable)) +
+  scale_x_continuous(limits = c(-0.20, 0.05)) +
   labs(title = "MCA plot of non-migratory Canada birds",
        fill = "",
        color = "") +
-  theme_bw()
+  theme_bw() +
+   theme(legend.position = "bottom")
 ```
 
 
