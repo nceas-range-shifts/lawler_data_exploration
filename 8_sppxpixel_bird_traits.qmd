@@ -171,3 +171,66 @@ ggplot(data = pixel_spp) +
 ```
 
 # Next step - sorensen similarity index (test a few pixels)
+
+```{r}
+# Test out with a single pixel (141325)
+pxl_141325 <- state_spp_list %>% 
+  filter(pixel_id == 141325) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0))
+```
+
+```{r}
+pxl_si <- pxl_141325 %>% 
+  group_by(pixel_id) %>% 
+  summarize(shared = sum(historical == 1 & future == 1),
+            historical_spp = sum(historical),
+            future_spp = sum(future),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+```{r}
+# Try all pixels
+pxl_ssi <- state_spp_list %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical == 1 & future == 1),
+            historical_spp = sum(historical),
+            future_spp = sum(future),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+```{r}
+# Distribution of Soresen Similiarity Index for bird species
+# Mean is 0.40 (moderate similarity between historic and future)
+ggplot(data = pxl_ssi) +
+  geom_histogram(aes(x = ssi),
+                 bins = 50) +
+  #facet_wrap(~juris) +
+  labs(title = "Soresen Similarity Index btwn historic & future by pixel (n = 152,594)",
+       x = "SSI")
+```
+
+```{r}
+# SSI stats by jurisdiction
+ssi_juris <- pxl_ssi %>% 
+  group_by(juris) %>% 
+  summarize(mean_ssi = mean(ssi),
+            median_ssi = median(ssi),
+            max_ssi = max(ssi),
+            min_ssi = min(ssi)) %>% 
+  ungroup()
+```
+
+```{r}
+ssi_juris %>% 
+  mutate(juris = fct_reorder(juris, mean_ssi, .desc = TRUE)) %>%
+  ggplot() +
+  geom_col(aes(x = juris, y = mean_ssi)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(y = "mean jurisdiction SSI")
+```
+
