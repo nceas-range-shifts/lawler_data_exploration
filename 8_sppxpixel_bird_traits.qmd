@@ -280,6 +280,26 @@ ggplot() +
   labs(title = "Birds Sorenen's Similiarity Index")
 ```
 
+In general, SSI values are as follows
+(https://www.statology.org/how-to-calculate-and-interpret-the-sorensen-dice-index/):
+
+* 0.80-1.00: Very high similarity (communities share most species)
+* 0.60-0.79: High similarity (substantial species overlap)
+* 0.40-0.59: Moderate similarity (some shared species)
+* 0.20-0.39: Low similarity (few shared species)
+* 0.00-0.19: Very low similarity (minimal species overlap)
+
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_ssi, aes(geometry = geometry, fill = (future_spp - historical_spp), color = (future_spp - historical_spp))) + 
+  scale_fill_viridis_c() + 
+  scale_color_viridis_c() +
+  labs(title = "Birds future species # - historic",
+       fill = "spp change",
+       color = "spp change")
+```
+
 ```{r}
 ggplot() +
   geom_sf(data = id_rast_sf_ssi %>% 
@@ -289,11 +309,4 @@ ggplot() +
   labs(title = "Birds in Canada Sorenen's Similiarity Index")
 ```
 
-In general, SSI values are as follows
-(https://www.statology.org/how-to-calculate-and-interpret-the-sorensen-dice-index/):
 
-* 0.80-1.00: Very high similarity (communities share most species)
-* 0.60-0.79: High similarity (substantial species overlap)
-* 0.40-0.59: Moderate similarity (some shared species)
-* 0.20-0.39: Low similarity (few shared species)
-* 0.00-0.19: Very low similarity (minimal species overlap)
