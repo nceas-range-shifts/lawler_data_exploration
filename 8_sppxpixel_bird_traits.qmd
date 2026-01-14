@@ -18,7 +18,8 @@ library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
 library(janitor)
 ```
 
-# See how species change at the pixel level
+# See how species change at the pixel level 
+# Will create a map of Soresen's Similiarity Index at the pixel level
 
 ```{r}
 # Functions 
@@ -209,6 +210,8 @@ pxl_ssi <- state_spp_list %>%
 ggplot(data = pxl_ssi) +
   geom_histogram(aes(x = ssi),
                  bins = 50) +
+  geom_vline(xintercept = mean(pxl_ssi$ssi)) +
+  annotate("text", label = "mean = 0.40", x = 0.30, y = 15000) +
   #facet_wrap(~juris) +
   labs(title = "Soresen Similarity Index btwn historic & future by pixel (n = 152,594)",
        x = "SSI")
@@ -236,50 +239,61 @@ ssi_juris %>%
        title = "Bird species mean pixel SSI by jurisdiction")
 ```
 
-# Create a map of pixels with their SSI
+# Create sf of raster ids to map the SSI by pixel
 
 ```{r}
-# x = hist_rast[[1]]
+# Create a blank raster with same extent as x = hist_rast[[1]] 
+id_rast <- rast(x)
+```
 
-grid_sf <- x %>% 
+```{r}
+# Assign IDs and then convert to sf
+values(id_rast ) <- 1:ncell(x)
+```
+
+```{r}
+id_rast_sf <- id_rast %>% 
   stars::st_as_stars() %>% 
   st_as_sf() %>% 
-  mutate(id = row_number()) %>% 
-  dplyr::select(id, geometry)
-```
-
-
-# Testing out rasterizing the shapefile grid and then treating the pixels like states
-```{r}
-pixel_rast <- rasterize(grid_sf, hist_rast, field = 'id')
+  rename("pixel_id" = "Acrocephalus familiaris")
 ```
 
 ```{r}
-pixel_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
-                         future_r = future_rast, 
-                         hist_r = hist_rast,
-                         juris_r = pixel_rast) %>%
-  setNames(spp_vec) %>%
-  bind_rows(.id = 'spp') %>%
-  left_join(grid_sf, by = 'id') #%>%
-  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
-  ### so sum up all those instances
-  #group_by(spp, juris) %>%
-  #summarize(n_historical = sum(n_historical),
-            #n_future = sum(n_future), 
-            #.groups = 'drop')
-```
-
-# Can see that the map isn't working, but the SSI above still seems correct
-
-```{r}
-# Merge in the SSI 
-grid_ssi_sf <- inner_join(pxl_ssi, grid_sf)
+# Merge in the SSI
+id_rast_sf_ssi <- inner_join(id_rast_sf, pxl_ssi)
 ```
 
 ```{r}
 ggplot() +
-  geom_sf(data = grid_ssi_sf %>% 
-            filter(juris == "California"), aes(geometry = geometry, fill = ssi, color = ssi))
+  geom_sf(data = id_rast_sf_ssi %>% 
+            filter(juris == "California"), aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Birds in CA Sorenen's Similiarity Index")
 ```
 
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_ssi, aes(geometry = geometry, color = ssi, fill = ssi)) +
+  scale_color_viridis_c() + 
+  scale_fill_viridis_c() + 
+  labs(title = "Birds Sorenen's Similiarity Index")
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_ssi %>% 
+            filter(juris == "Canada"), aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Birds in Canada Sorenen's Similiarity Index")
+```
+
+In general, SSI values are as follows
+(https://www.statology.org/how-to-calculate-and-interpret-the-sorensen-dice-index/):
+
+* 0.80-1.00: Very high similarity (communities share most species)
+* 0.60-0.79: High similarity (substantial species overlap)
+* 0.40-0.59: Moderate similarity (some shared species)
+* 0.20-0.39: Low similarity (few shared species)
+* 0.00-0.19: Very low similarity (minimal species overlap)
