@@ -231,6 +231,55 @@ ssi_juris %>%
   ggplot() +
   geom_col(aes(x = juris, y = mean_ssi)) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
-  labs(y = "mean jurisdiction SSI")
+  labs(y = "mean pixel SSI",
+       x = "jurisdiction",
+       title = "Bird species mean pixel SSI by jurisdiction")
+```
+
+# Create a map of pixels with their SSI
+
+```{r}
+# x = hist_rast[[1]]
+
+grid_sf <- x %>% 
+  stars::st_as_stars() %>% 
+  st_as_sf() %>% 
+  mutate(id = row_number()) %>% 
+  dplyr::select(id, geometry)
+```
+
+
+# Testing out rasterizing the shapefile grid and then treating the pixels like states
+```{r}
+pixel_rast <- rasterize(grid_sf, hist_rast, field = 'id')
+```
+
+```{r}
+pixel_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
+                         future_r = future_rast, 
+                         hist_r = hist_rast,
+                         juris_r = pixel_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(grid_sf, by = 'id') #%>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  #group_by(spp, juris) %>%
+  #summarize(n_historical = sum(n_historical),
+            #n_future = sum(n_future), 
+            #.groups = 'drop')
+```
+
+# Can see that the map isn't working, but the SSI above still seems correct
+
+```{r}
+# Merge in the SSI 
+grid_ssi_sf <- inner_join(pxl_ssi, grid_sf)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = grid_ssi_sf %>% 
+            filter(juris == "California"), aes(geometry = geometry, fill = ssi, color = ssi))
 ```
 
