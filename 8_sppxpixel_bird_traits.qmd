@@ -309,4 +309,90 @@ ggplot() +
   labs(title = "Birds in Canada Sorenen's Similiarity Index")
 ```
 
+# Add in Avonet data and investigate trait change at pixel level
 
+Let's filter to the birds that easily merge with the Avonet dataset (270)
+
+```{r}
+# See how well the Avonet trait data merges in 
+# 270 of 301 have matches - could work with these species for now since they should be able to match with IUCN
+birds_avonet <- left_join(birds_all, (avonet %>% rename(spp = species1)))
+
+lawler_avvonet_birds <- birds_avonet %>% 
+  drop_na(sequence)
+
+lawler_avvonet_birds_vec <- lawler_avvonet_birds$spp
+```
+
+```{r}
+pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avvonet_birds) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future))
+```
+
+```{r}
+# Clean up dataset, filter for non-migratory species
+pxl_spp_trait_sed <- pxl_spp_list_trait %>% 
+  # Migration == 1 is sedentary lifestyle
+  filter(migration == 1) %>% 
+  dplyr::select(spp:juris, habitat:primary_lifestyle) %>% 
+  filter(historical > 0.25 | future > 0.5)
+```
+
+```{r}
+# Test out a small area
+ri_spp_trait_sed <- pxl_spp_trait_sed %>% 
+  filter(juris == "Rhode Island") %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
+                                     habitat_density == 2 ~ "Semi-open",
+                                     habitat_density == 3 ~ "Open"))
+```
+
+```{r}
+# Check out groupings
+ri_trait_groups <- ri_spp_trait_sed %>% 
+  group_by(habitat, habitat_density, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  summarize(n_historical = sum(historical),
+            n_future = sum(future))
+```
+
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+ri_spp_trait_sed_groups <- ri_spp_trait_sed %>% 
+  unite(trait_group, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historical),
+            future_trait_group_count = sum(future)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the sorensen index to traits, then we care about the presence / absence of a trait group and not the # of species
+ri_spp_trait_sed_groups_ssi <- ri_spp_trait_sed_groups %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            ssi = (2 *shared)/(historical_trait_groups + future_trait_groups))
+
+```
+
+```{r}
+# Merge in the SSI
+id_rast_sf_ri_ssi <- inner_join(id_rast_sf, ri_spp_trait_sed_groups_ssi )
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_ri_ssi, aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Bird trait groups in RI Sorenen's Similiarity Index")
+```
