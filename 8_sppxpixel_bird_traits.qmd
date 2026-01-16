@@ -396,3 +396,108 @@ ggplot() +
   scale_color_viridis_c(limits = c(0,1)) +
   labs(title = "Bird trait groups in RI Sorenen's Similiarity Index")
 ```
+
+# Apply to US
+Still working with non-migratory
+
+```{r}
+us_spp_trait <- pxl_spp_list_trait %>% 
+  dplyr::select(spp:juris, habitat:primary_lifestyle) %>% 
+  filter(historical > 0.25 | future > 0.5) %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
+                                     habitat_density == 2 ~ "Semi-open",
+                                     habitat_density == 3 ~ "Open")) %>% 
+  mutate(migration = case_when(migration == 1 ~ "Sedentary",
+                               migration == 2 ~ "Partial",
+                               migration == 3 ~ "Migratory"))
+```
+
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+us_spp_trait_groups <- us_spp_trait %>% 
+  unite(trait_group, migration, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historical),
+            future_trait_group_count = sum(future)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the sorensen index to traits, then we care about the presence / absence of a trait group and not the # of species
+us_spp_trait_groups_ssi <- us_spp_trait_groups %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            trait_group_ssi = (2 *shared)/(historical_trait_groups + future_trait_groups)) %>% 
+  ungroup()
+
+```
+
+```{r}
+# Merge in the SSI
+id_rast_sf_us_ssi <- inner_join(id_rast_sf, us_spp_trait_groups_ssi)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi), size = 0) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Bird trait groups Sorenen's Similiarity Index")
+```
+
+# What's the change from species SSI to trait SSI 
+First, need to filter down the species SSI dataframe to only those birds within the Avonet dataset 
+
+```{r}
+# Filter the species dataframe down to on the avonet birds
+pxl_ssi_avonet_spp <- state_spp_list %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  filter(spp %in% lawler_avvonet_birds_vec) %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical == 1 & future == 1),
+            historical_spp = sum(historical),
+            future_spp = sum(future),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+```{r}
+# Merge in the SSI
+id_rast_sf_ssi_avonet_spp <- inner_join(id_rast_sf, pxl_ssi_avonet_spp)
+```
+
+Would expect trait SSI to generally to be greater than species SSI
+
+```{r}
+pxl_ssi_dif <- left_join(us_spp_trait_groups_ssi %>% 
+                           dplyr::select(pixel_id, trait_group_ssi),
+                         pxl_ssi_avonet_spp %>% 
+                           dplyr::select(pixel_id, ssi)) %>% 
+  mutate(ssi_diff = trait_group_ssi - ssi)
+```
+
+```{r}
+# Merge in the SSI
+id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, pxl_ssi_dif)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_us_ssi_diff, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
+  scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) + 
+  scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) +
+  labs(title = "Trait SSI - Species SSI")
+```
+
+
+
