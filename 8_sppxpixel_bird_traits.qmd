@@ -496,8 +496,74 @@ ggplot() +
   geom_sf(data = id_rast_sf_us_ssi_diff, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
   scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) + 
   scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) +
+  # Show areas 0 species and trait overlap in pink
+  geom_sf(data = id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 0 & trait_group_ssi == 0), 
+          aes(geometry = geometry), fill = "magenta", color = "magenta") +
+  # Show areas 0 species and trait overlap in navy
+  geom_sf(data = id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 1 & trait_group_ssi == 1), 
+          aes(geometry = geometry), fill = "navy", color = "navy") +
   labs(title = "Trait SSI - Species SSI")
 ```
 
+#Let'slook closer at the pixels where the difference is 0
+
+```{r}
+pxl_ssi_diff_0 <- pxl_ssi_dif %>% 
+  filter(ssi_diff == 0)
+
+pxl_ssi_diff_0_summary <- pxl_ssi_diff_0 %>% 
+  mutate(diff_type = case_when(trait_group_ssi == 0 & ssi == 0 ~ "zero",
+                               trait_group_ssi == 1 & ssi == 1 ~ "one",
+                               TRUE ~ "non-zero")) %>% 
+  group_by(diff_type) %>% 
+  summarize(count = n()) %>% 
+  ungroup()
+
+zero_trait_species_ssi <- pxl_ssi_diff_0 %>% 
+  filter(trait_group_ssi == 0 & ssi == 0 )
+
+zero_trait_species_ssi_pxls <- zero_trait_species_ssi$pixel_id
+```
+
+```{r}
+# Look at the zero ssi pixels
+
+zero_species_ssi <-state_spp_list %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  filter(spp %in% lawler_avvonet_birds_vec) %>% 
+  filter(pixel_id %in% zero_trait_species_ssi_pxls) %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  filter(historical == 1 | future == 1)
+  
 
 
+```
+
+One issue is that some of the Lawler birds didn't match with the Avonet traits. This may be causing some of the zero species or trait overlap.
+
+```{r}
+lawler_not_avvonet_birds <- birds_avonet %>% 
+  filter(is.na(sequence))
+```
+
+Read in crosswalk of lawler to avonet species (created with gemini)
+
+```{r}
+lawler_avonet_xwlk <- read_csv(here("data-laa", "lawler_avonet_xwlk.csv")) %>% 
+  clean_names() %>% 
+  dplyr::select(lawler_spp:name_status) %>% 
+  drop_na()
+```
+
+```{r}
+# Match the lawler avonet xlk with trait data
+# The two extinct species drop out
+lawler_avonet_traits <- inner_join(lawler_avonet_xwlk, 
+                                   avonet %>% rename(avonet_spp = species1))
+```
+
+# Next steps 
+Correct the avonet names at the beginning of the code so that all the bird species are included. Then can more accurately compare the species SSI and the trait SSI and highlight areas that are true zeros for both. 
