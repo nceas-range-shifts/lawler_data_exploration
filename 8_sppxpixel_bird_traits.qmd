@@ -311,7 +311,7 @@ ggplot() +
 
 # Add in Avonet data and investigate trait change at pixel level
 
-Let's filter to the birds that easily merge with the Avonet dataset (270)
+Let's start with the birds that easily merge with the Avonet dataset (270)
 
 ```{r}
 # See how well the Avonet trait data merges in 
@@ -324,81 +324,40 @@ lawler_avvonet_birds <- birds_avonet %>%
 lawler_avvonet_birds_vec <- lawler_avvonet_birds$spp
 ```
 
+Now, will add in the bird species that did not merge as easily.
+
 ```{r}
-pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avvonet_birds) %>% 
+# Read in crosswalk of lawler to avonet species (created with input from gemini)
+lawler_avonet_xwlk <- read_csv(here("data-laa", "lawler_avonet_xwlk.csv")) %>% 
+  clean_names() %>% 
+  dplyr::select(lawler_spp:name_status) %>% 
+  drop_na()
+```
+
+```{r}
+# Match the lawler avonet xlk with trait data
+# The two extinct species drop out
+lawler_avonet_traits_missing <- inner_join(lawler_avonet_xwlk, 
+                                   avonet %>% rename(avonet_spp = species1))
+```
+
+```{r}
+# Bind the easily matched birds and the birds that were missing in the merge
+lawler_avonet_all <- rbind(
+  lawler_avvonet_birds %>% dplyr::select(-tax, -files),
+  lawler_avonet_traits_missing %>% dplyr::select(-avonet_spp, -name_status)
+)
+```
+
+
+```{r}
+pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avonet_all) %>% 
     filter(!is.na(id)) %>%
     filter(!is.na(historical) | !is.na(future))
 ```
 
-```{r}
-# Clean up dataset, filter for non-migratory species
-pxl_spp_trait_sed <- pxl_spp_list_trait %>% 
-  # Migration == 1 is sedentary lifestyle
-  filter(migration == 1) %>% 
-  dplyr::select(spp:juris, habitat:primary_lifestyle) %>% 
-  filter(historical > 0.25 | future > 0.5)
-```
 
-```{r}
-# Test out a small area
-ri_spp_trait_sed <- pxl_spp_trait_sed %>% 
-  filter(juris == "Rhode Island") %>% 
-  mutate(future = case_when(future > 0.5 ~ 1,
-                           TRUE ~ 0)) %>% 
-  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
-                                     habitat_density == 2 ~ "Semi-open",
-                                     habitat_density == 3 ~ "Open"))
-```
-
-```{r}
-# Check out groupings
-ri_trait_groups <- ri_spp_trait_sed %>% 
-  group_by(habitat, habitat_density, trophic_level, trophic_niche, primary_lifestyle) %>% 
-  summarize(n_historical = sum(historical),
-            n_future = sum(future))
-```
-
-```{r}
-# Combine the categorical columns into one group column to create unique groups
-# Count up these trait groups by pixel
-ri_spp_trait_sed_groups <- ri_spp_trait_sed %>% 
-  unite(trait_group, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
-  group_by(pixel_id, juris, trait_group) %>% 
-  summarize(historical_trait_group_count = sum(historical),
-            future_trait_group_count = sum(future)) %>% 
-  ungroup()
-```
-
-```{r}
-# If we apply the sorensen index to traits, then we care about the presence / absence of a trait group and not the # of species
-ri_spp_trait_sed_groups_ssi <- ri_spp_trait_sed_groups %>% 
-  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
-                                                     historical_trait_group_count != 0 ~ 1),
-         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
-                                                     future_trait_group_count != 0 ~ 1)) %>% 
-  group_by(pixel_id, juris) %>% 
-  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
-            historical_trait_groups= sum(historical_trait_group_presence),
-            future_trait_groups = sum(future_trait_group_presence),
-            ssi = (2 *shared)/(historical_trait_groups + future_trait_groups))
-
-```
-
-```{r}
-# Merge in the SSI
-id_rast_sf_ri_ssi <- inner_join(id_rast_sf, ri_spp_trait_sed_groups_ssi )
-```
-
-```{r}
-ggplot() +
-  geom_sf(data = id_rast_sf_ri_ssi, aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
-  scale_fill_viridis_c(limits = c(0,1)) + 
-  scale_color_viridis_c(limits = c(0,1)) +
-  labs(title = "Bird trait groups in RI Sorenen's Similiarity Index")
-```
-
-# Apply to US
-Still working with non-migratory
+# Create map
 
 ```{r}
 us_spp_trait <- pxl_spp_list_trait %>% 
@@ -442,11 +401,12 @@ us_spp_trait_groups_ssi <- us_spp_trait_groups %>%
 ```
 
 ```{r}
-# Merge in the SSI
+# Merge in pixel geography for map
 id_rast_sf_us_ssi <- inner_join(id_rast_sf, us_spp_trait_groups_ssi)
 ```
 
 ```{r}
+# Create map (299 bird species)
 ggplot() +
   geom_sf(data = id_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi), size = 0) + 
   scale_fill_viridis_c(limits = c(0,1)) + 
@@ -455,7 +415,6 @@ ggplot() +
 ```
 
 # What's the change from species SSI to trait SSI 
-First, need to filter down the species SSI dataframe to only those birds within the Avonet dataset 
 
 ```{r}
 # Filter the species dataframe down to on the avonet birds
@@ -473,7 +432,7 @@ pxl_ssi_avonet_spp <- state_spp_list %>%
 
 ```{r}
 # Merge in the SSI
-id_rast_sf_ssi_avonet_spp <- inner_join(id_rast_sf, pxl_ssi_avonet_spp)
+id_rast_sf_ssi_avonet_spp <- inner_join(id_rast_sf, pxl_ssi)
 ```
 
 Would expect trait SSI to generally to be greater than species SSI
@@ -481,13 +440,13 @@ Would expect trait SSI to generally to be greater than species SSI
 ```{r}
 pxl_ssi_dif <- left_join(us_spp_trait_groups_ssi %>% 
                            dplyr::select(pixel_id, trait_group_ssi),
-                         pxl_ssi_avonet_spp %>% 
+                         pxl_ssi %>% 
                            dplyr::select(pixel_id, ssi)) %>% 
   mutate(ssi_diff = trait_group_ssi - ssi)
 ```
 
 ```{r}
-# Merge in the SSI
+# Merge in the pixel geography
 id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, pxl_ssi_dif)
 ```
 
@@ -499,15 +458,17 @@ ggplot() +
   # Show areas 0 species and trait overlap in pink
   geom_sf(data = id_rast_sf_us_ssi_diff %>% 
             filter(ssi == 0 & trait_group_ssi == 0), 
-          aes(geometry = geometry), fill = "magenta", color = "magenta") +
-  # Show areas 0 species and trait overlap in navy
+          aes(geometry = geometry), fill = "pink", color = "pink") +
+  # Show areas with full species and trait overlap in navy
   geom_sf(data = id_rast_sf_us_ssi_diff %>% 
             filter(ssi == 1 & trait_group_ssi == 1), 
           aes(geometry = geometry), fill = "navy", color = "navy") +
-  labs(title = "Trait SSI - Species SSI")
+  labs(title = "Trait SSI - Species SSI",
+       subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
 ```
 
 #Let'slook closer at the pixels where the difference is 0
+Zeros may be areas where there are 0 species SSI and 0 trait SSI (no similarity btwn historic and future), 1 species SSI and 1 trait SSI (complete similarity btwn historic and future), or nonzero values.
 
 ```{r}
 pxl_ssi_diff_0 <- pxl_ssi_dif %>% 
@@ -532,7 +493,7 @@ zero_trait_species_ssi_pxls <- zero_trait_species_ssi$pixel_id
 
 zero_species_ssi <-state_spp_list %>% 
   # Assign future pixels > 0.5 to spp prescence 
-  filter(spp %in% lawler_avvonet_birds_vec) %>% 
+ # filter(spp %in% lawler_avvonet_birds_vec) %>% 
   filter(pixel_id %in% zero_trait_species_ssi_pxls) %>% 
   mutate(future = case_when(future > 0.5 ~ 1,
                            TRUE ~ 0)) %>% 
@@ -542,28 +503,3 @@ zero_species_ssi <-state_spp_list %>%
 
 ```
 
-One issue is that some of the Lawler birds didn't match with the Avonet traits. This may be causing some of the zero species or trait overlap.
-
-```{r}
-lawler_not_avvonet_birds <- birds_avonet %>% 
-  filter(is.na(sequence))
-```
-
-Read in crosswalk of lawler to avonet species (created with gemini)
-
-```{r}
-lawler_avonet_xwlk <- read_csv(here("data-laa", "lawler_avonet_xwlk.csv")) %>% 
-  clean_names() %>% 
-  dplyr::select(lawler_spp:name_status) %>% 
-  drop_na()
-```
-
-```{r}
-# Match the lawler avonet xlk with trait data
-# The two extinct species drop out
-lawler_avonet_traits <- inner_join(lawler_avonet_xwlk, 
-                                   avonet %>% rename(avonet_spp = species1))
-```
-
-# Next steps 
-Correct the avonet names at the beginning of the code so that all the bird species are included. Then can more accurately compare the species SSI and the trait SSI and highlight areas that are true zeros for both. 
