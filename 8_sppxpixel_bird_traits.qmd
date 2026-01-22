@@ -19,8 +19,7 @@ library(janitor)
 library(cowplot)
 ```
 
-# See how species change at the pixel level 
-# Will create a map of Soresen's Similiarity Index at the pixel level
+This document investigates the Sorensen Similarity Index for the bird species in the Lawler paper at both the species and trait level. Visualizations are at the pixel level. Categorical trait data is from AVONET.
 
 ```{r}
 # Functions 
@@ -151,8 +150,8 @@ state_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
             #.groups = 'drop')
 ```
 
-
-# Now that we have each species at the pixel level (pixel id), how many species are in each pixel for historical and future?
+## Pixel level analysis
+Now that we have each species at the pixel level (pixel id), how many species are in each pixel for historical and future?
 
 ```{r}
 pixel_spp <- state_spp_list %>% 
@@ -172,7 +171,7 @@ ggplot(data = pixel_spp) +
        x = "species change")
 ```
 
-# Next step - sorensen similarity index (test a few pixels)
+## Sorensen Similarity Index
 
 ```{r}
 # Test out with a single pixel (141325)
@@ -206,7 +205,7 @@ pxl_ssi <- state_spp_list %>%
 ```
 
 ```{r}
-# Distribution of Soresen Similiarity Index for bird species
+# Distribution of Sorensen Similarity Index for bird species
 # Mean is 0.40 (moderate similarity between historic and future)
 ggplot(data = pxl_ssi) +
   geom_histogram(aes(x = ssi),
@@ -214,7 +213,7 @@ ggplot(data = pxl_ssi) +
   geom_vline(xintercept = mean(pxl_ssi$ssi)) +
   annotate("text", label = "mean = 0.40", x = 0.30, y = 15000) +
   #facet_wrap(~juris) +
-  labs(title = "Soresen Similarity Index btwn historic & future by pixel (n = 152,594)",
+  labs(title = "Sorensen Similarity Index btwn historic & future by pixel (n = 152,594)",
        x = "SSI")
 ```
 
@@ -240,7 +239,7 @@ ssi_juris %>%
        title = "Bird species mean pixel SSI by jurisdiction")
 ```
 
-# Create sf of raster ids to map the SSI by pixel
+## Map the SSI by pixel
 
 ```{r}
 # Create a blank raster with same extent as x = hist_rast[[1]] 
@@ -270,7 +269,7 @@ ggplot() +
             filter(juris == "California"), aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
   scale_fill_viridis_c(limits = c(0,1)) + 
   scale_color_viridis_c(limits = c(0,1)) +
-  labs(title = "Birds in CA Sorenen's Similiarity Index")
+  labs(title = "Birds in CA Sorensen Similiarity Index")
 ```
 
 ```{r}
@@ -278,7 +277,7 @@ ggplot() +
   geom_sf(data = id_rast_sf_ssi, aes(geometry = geometry, color = ssi, fill = ssi)) +
   scale_color_viridis_c() + 
   scale_fill_viridis_c() + 
-  labs(title = "Birds Sorenen's Similiarity Index")
+  labs(title = "Birds Sorensen Similiarity Index")
 ```
 
 In general, SSI values are as follows
@@ -290,6 +289,7 @@ In general, SSI values are as follows
 * 0.20-0.39: Low similarity (few shared species)
 * 0.00-0.19: Very low similarity (minimal species overlap)
 
+### Species numbers
 
 ```{r}
 historic_spp_num <- ggplot() +
@@ -320,17 +320,7 @@ plot_grid(historic_spp_num + theme(legend.position = 'bottom'),
           future_spp_num + theme(legend.position = 'bottom'))
 ```
 
-
-```{r}
-ggplot() +
-  geom_sf(data = id_rast_sf_ssi %>% 
-            filter(juris == "Canada"), aes(geometry = geometry, fill = ssi, color = ssi), size = 0) + 
-  scale_fill_viridis_c(limits = c(0,1)) + 
-  scale_color_viridis_c(limits = c(0,1)) +
-  labs(title = "Birds in Canada Sorenen's Similiarity Index")
-```
-
-# Add in Avonet data and investigate trait change at pixel level
+## Add in Avonet data and investigate trait SSI at pixel level
 
 Let's start with the birds that easily merge with the Avonet dataset (270)
 
@@ -345,7 +335,7 @@ lawler_avvonet_birds <- birds_avonet %>%
 lawler_avvonet_birds_vec <- lawler_avvonet_birds$spp
 ```
 
-Now, will add in the bird species that did not merge as easily for a total of 299
+Now, will add in the bird species that did not merge as easily for a total of 299 (2 of the 301 birds are extinct)
 
 ```{r}
 # Read in crosswalk of lawler to avonet species (created with input from gemini)
@@ -370,7 +360,6 @@ lawler_avonet_all <- rbind(
 )
 ```
 
-
 ```{r}
 pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avonet_all) %>% 
     filter(!is.na(id)) %>%
@@ -378,7 +367,7 @@ pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avonet_all) %>%
 ```
 
 
-# Create map
+### Create trait SSI map
 
 ```{r}
 us_spp_trait <- pxl_spp_list_trait %>% 
@@ -406,7 +395,7 @@ us_spp_trait_groups <- us_spp_trait %>%
 ```
 
 ```{r}
-# If we apply the sorensen index to traits, then we care about the presence / absence of a trait group and not the # of species
+# If we apply the Sorensen Similarity Index to traits, then we care about the presence / absence of a trait group and not the # of species
 us_spp_trait_groups_ssi <- us_spp_trait_groups %>% 
   mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
                                                      historical_trait_group_count != 0 ~ 1),
@@ -432,31 +421,11 @@ ggplot() +
   geom_sf(data = id_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi), size = 0) + 
   scale_fill_viridis_c(limits = c(0,1)) + 
   scale_color_viridis_c(limits = c(0,1)) +
-  labs(title = "Bird trait groups Sorenen's Similiarity Index")
+  labs(title = "Bird trait groups Sorensen Similiarity Index")
 ```
 
-# What's the change from species SSI to trait SSI 
-
-```{r}
-# Filter the species dataframe down to on the avonet birds
-pxl_ssi_avonet_spp <- state_spp_list %>% 
-  # Assign future pixels > 0.5 to spp prescence 
-  filter(spp %in% lawler_avvonet_birds_vec) %>% 
-  mutate(future = case_when(future > 0.5 ~ 1,
-                           TRUE ~ 0)) %>% 
-  group_by(pixel_id, juris) %>% 
-  summarize(shared = sum(historical == 1 & future == 1),
-            historical_spp = sum(historical),
-            future_spp = sum(future),
-            ssi = (2 *shared)/(historical_spp + future_spp))
-```
-
-```{r}
-# Merge in the SSI
-id_rast_sf_ssi_avonet_spp <- inner_join(id_rast_sf, pxl_ssi)
-```
-
-Would expect trait SSI to generally to be greater than species SSI
+### What's the change between trait SSI and species SSI?
+If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
 
 ```{r}
 pxl_ssi_dif <- left_join(us_spp_trait_groups_ssi %>% 
@@ -487,8 +456,10 @@ ggplot() +
   labs(title = "Trait SSI - Species SSI",
        subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
 ```
+Areas in teal have greater trait similarity than species similarity. Areas in brown have less trait similarity than species similarity. 
 
-#Let'slook closer at the pixels where the difference is 0
+
+### Let'slook closer at the pixels where the difference is 0
 Zeros may be areas where there are 0 species SSI and 0 trait SSI (no similarity btwn historic and future), 1 species SSI and 1 trait SSI (complete similarity btwn historic and future), or nonzero values.
 
 ```{r}
@@ -525,26 +496,43 @@ zero_species_ssi <-state_spp_list %>%
 
 ```
 
-# Plotting a few of the North Dakota birds
+## Plotting a few of the North Dakota birds
+North Dakota looks to be an area with high species loss. These maps take a closer look at a few of the species there.
+
+### Xenus cinereus - Terek sandpiper
+This Eurasian species has only been observed 5 times in the lower 48 states. Surprising to see the historical model project such a large range. This is one of the few species moving into North Dakota (although seems unlikely in reality).
 
 ```{r}
-# Seems like it's one of the few birds showing up in future North Dakota (even though it seems unlikely to be there based on research)
 plot(hist_rast$`Xenus cinereus`, main = "Xenus cinereus - historical")
 plot(future_rast$`Xenus cinereus`, main = "Xenus cinereus - future")
 ```
 
+### Parus hudsonicus - boreal chickadee
 ```{r}
 plot(hist_rast$`Parus hudsonicus`, main = "Parus hudsonicus - historical")
 plot(future_rast$`Parus hudsonicus`, main = "Parus hudsonicus - future")
 ```
-
+### Anser rossii - Ross's Goose
+Large projected reduction in range
 ```{r}
 plot(hist_rast$`Anser rossii`, main = "Anser rossii - historical")
 plot(future_rast$`Anser rossii`, main = "Anser rossii - future")
 ```
-
+### Tympanuchus pallidicinctus - lesser prairie-chicken
 
 ```{r}
 plot(hist_rast$`Tympanuchus pallidicinctus`, main = "Tympanuchus pallidicinctus - historical")
 plot(future_rast$`Tympanuchus pallidicinctus`, main = "Tympanuchus pallidicinctus - future")
+```
+
+## Two extinct species
+These both have about 15 historic GBIF records in the 1900s in Hawaii (around when they went extinct).
+```{r}
+plot(hist_rast$`Moho nobilis`, main = "Moho nobilis - historical")
+plot(future_rast$`Moho nobilis`, main = "Moho nobilis - future")
+```
+
+```{r}
+plot(hist_rast$`Hemignathus obscurus`, main = "Hemignathus obscurus - historical")
+plot(future_rast$`Hemignathus obscurus`, main = "Hemignathus obscurus - future")
 ```
