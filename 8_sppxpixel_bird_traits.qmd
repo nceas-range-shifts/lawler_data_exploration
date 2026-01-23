@@ -536,3 +536,164 @@ plot(future_rast$`Moho nobilis`, main = "Moho nobilis - future")
 plot(hist_rast$`Hemignathus obscurus`, main = "Hemignathus obscurus - historical")
 plot(future_rast$`Hemignathus obscurus`, main = "Hemignathus obscurus - future")
 ```
+
+## IUCN threat status
+
+```{r}
+# Read in crosswalk of lawler to avonet to IUCN species (created with input from gemini)
+lawler_iucn_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk.csv")) %>% 
+  clean_names() #%>% 
+  #dplyr::select(lawler_spp:name_status) %>% 
+  #drop_na()
+```
+```{r}
+iucn_gns_spp <- lawler_iucn_xwlk %>% 
+  separate(iucn_spp, into = c("iucn_genus", "iucn_species"), sep = " ", remove = FALSE) 
+```
+
+### Follow process in 7_combine_sppxborder_bird_pca.qmd to bring in the IUCN information 
+
+```{r}
+api_key <- Sys.getenv("IUCN_API_KEY") ### usethis::edit_r_environ() to add key to R environment file
+api <- init_api(api_key)
+```
+
+```{r}
+# Pull the genus and species names
+iucn_gns <- iucn_gns_spp$iucn_genus
+iucn_species <- iucn_gns_spp$iucn_species
+```
+
+```{r}
+# Issuses with the hummingbirds
+# Amazilis rutila should be Amazilia rutila
+# Amazilis violiceps should be Leucolia violiceps
+# Amazilis yucatanensis should be Amazilia yucatanensis
+iucn_gns[10] <- "Amazilia"
+iucn_gns[11] <- "Leucolia"
+iucn_gns[12] <- "Amazilia"
+```
+
+```{r}
+# Caracara cheriway should be Caracara plancus
+iucn_species[57] <- "plancus"
+# Ciccaba virgata should remain Ciccaba virgata
+iucn_gns[71] <- "Ciccaba"
+# Cyanocorax yncas should remain Cyanocorax yncas
+iucn_species[85] <- "yncas"
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list <- list()
+for(i in 1:length(iucn_species[1:100])){
+  test <- iucn_id(api, iucn_gns[i], iucn_species[i])
+  iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+iucn_id_vector_100 <- unlist(iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+# 54 unique assessment IDs (have species repeaeted in historic and future)
+iucn_id_data_100 <- assessment_data_many(api, iucn_id_vector_100, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+iucn_100_names <- extract_element(iucn_id_data_100, "taxon")
+iucn_100_status <- extract_element(iucn_id_data_100, "red_list_category")
+iucn_100_trends <- extract_element(iucn_id_data_100, "population_trend")
+
+iucn_100_names_status <- left_join(iucn_100_names, iucn_100_status, by = "assessment_id")
+iucn_100_names_status_trends <- left_join(iucn_100_names_status, iucn_100_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+iucn_gns_spp_200 <- iucn_gns_spp[101:200,]
+
+# Pull the genus and species names
+iucn_gns_200 <- iucn_gns_spp_200$iucn_genus
+iucn_species_200 <- iucn_gns_spp_200$iucn_species
+```
+
+```{r}
+# Glaucidium californicum should be Glaucidium gnoma
+iucn_species_200[7] <- "gnoma"
+# Larus canus should remain Larus canus
+iucn_species_200[25] <- "canus"
+# Locustella ochotensis should be Helopsaltes ochotensis
+iucn_gns_200[34] <- "Helopsaltes"
+# Neocrex erythrops should remain Neocrex erythrops
+iucn_gns_200[65] <- "Neocrex"
+
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list_200 <- list()
+for(i in 1:length(iucn_species_200)){
+  test <- iucn_id(api, iucn_gns_200[i], iucn_species_200[i])
+  iucn_id_list_200[[i]] <- test
+}
+```
+
+```{r}
+iucn_id_vector_200 <- unlist(iucn_id_list_200)
+```
+
+```{r}
+iucn_gns_spp_300 <- iucn_gns_spp[201:301,]
+
+# Pull the genus and species names
+iucn_gns_300 <- iucn_gns_spp_300$iucn_genus
+iucn_species_300 <- iucn_gns_spp_300$iucn_species
+```
+
+```{r}
+# Thalasseus sandvicensis should remain Thalasseus sandvicensis
+iucn_species_300[39] <- "sandvicensis"
+# Aphelocoma insularis should be Aphelocoma californica (and maybe for Avonet too)
+iucn_species_300[72] <- "californica"
+# Euthlypis lachrymosa should be Basileuterus lachrymosus
+iucn_gns_300[79] <- "Basileuterus"
+iucn_species_300[79] <- "lachrymosus"
+# Psilorhinus morio should be Cyanocorax morio
+iucn_gns_300[95] <- "Cyanocorax"
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list_300 <- list()
+for(i in 1:length(iucn_gns_300)){
+  test <- iucn_id(api, iucn_gns_300[i], iucn_species_300[i])
+  iucn_id_list_300[[i]] <- test
+}
+```
+
+```{r}
+iucn_id_vector_300 <- unlist(iucn_id_list_300)
+```
+
+
+#### draft
+```{r}
+ca_sed_iucn_clean <- ca_sed_names_status_trends %>% 
+  dplyr::select(scientific_name, description.x, description.y, threatened) %>% 
+  rename(spp = scientific_name, 
+         iucn_status = description.x,
+         iucn_trend = description.y) %>% 
+  # return scientific names to Lawler dataset
+  mutate(spp = case_when(spp == "Saucerottia beryllina" ~ "Amazilia beryllina",
+                         spp == "Leucolia violiceps" ~"Amazilia violiceps",
+                         spp == "Canachites canadensis" ~ "Falcipennis canadensis",
+                         TRUE ~ spp))
+```
+
