@@ -540,12 +540,11 @@ plot(future_rast$`Hemignathus obscurus`, main = "Hemignathus obscurus - future")
 ## IUCN threat status
 
 ```{r}
-# Read in crosswalk of lawler to avonet to IUCN species (created with input from gemini)
-lawler_iucn_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk.csv")) %>% 
-  clean_names() #%>% 
-  #dplyr::select(lawler_spp:name_status) %>% 
-  #drop_na()
+# Read in  IUCN xwlk (created with Gemini and IUCN search engine)
+lawler_iucn_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk_update.csv")) %>% 
+  clean_names()
 ```
+
 ```{r}
 iucn_gns_spp <- lawler_iucn_xwlk %>% 
   separate(iucn_spp, into = c("iucn_genus", "iucn_species"), sep = " ", remove = FALSE) 
@@ -562,25 +561,6 @@ api <- init_api(api_key)
 # Pull the genus and species names
 iucn_gns <- iucn_gns_spp$iucn_genus
 iucn_species <- iucn_gns_spp$iucn_species
-```
-
-```{r}
-# Issuses with the hummingbirds
-# Amazilis rutila should be Amazilia rutila
-# Amazilis violiceps should be Leucolia violiceps
-# Amazilis yucatanensis should be Amazilia yucatanensis
-iucn_gns[10] <- "Amazilia"
-iucn_gns[11] <- "Leucolia"
-iucn_gns[12] <- "Amazilia"
-```
-
-```{r}
-# Caracara cheriway should be Caracara plancus
-iucn_species[57] <- "plancus"
-# Ciccaba virgata should remain Ciccaba virgata
-iucn_gns[71] <- "Ciccaba"
-# Cyanocorax yncas should remain Cyanocorax yncas
-iucn_species[85] <- "yncas"
 ```
 
 ```{r}
@@ -617,23 +597,12 @@ iucn_100_names_status_trends <- left_join(iucn_100_names_status, iucn_100_trends
 ```
 
 ```{r}
+#Breaking into pieces for the IUCN API processing 
 iucn_gns_spp_200 <- iucn_gns_spp[101:200,]
 
 # Pull the genus and species names
 iucn_gns_200 <- iucn_gns_spp_200$iucn_genus
 iucn_species_200 <- iucn_gns_spp_200$iucn_species
-```
-
-```{r}
-# Glaucidium californicum should be Glaucidium gnoma
-iucn_species_200[7] <- "gnoma"
-# Larus canus should remain Larus canus
-iucn_species_200[25] <- "canus"
-# Locustella ochotensis should be Helopsaltes ochotensis
-iucn_gns_200[34] <- "Helopsaltes"
-# Neocrex erythrops should remain Neocrex erythrops
-iucn_gns_200[65] <- "Neocrex"
-
 ```
 
 ```{r}
@@ -650,23 +619,31 @@ iucn_id_vector_200 <- unlist(iucn_id_list_200)
 ```
 
 ```{r}
+# Run the assessment numbers collected from the iucn_id function
+# 54 unique assessment IDs (have species repeaeted in historic and future)
+iucn_id_data_200 <- assessment_data_many(api, iucn_id_vector_200, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+iucn_200_names <- extract_element(iucn_id_data_200, "taxon")
+iucn_200_status <- extract_element(iucn_id_data_200, "red_list_category")
+iucn_200_trends <- extract_element(iucn_id_data_200, "population_trend")
+
+iucn_200_names_status <- left_join(iucn_200_names, iucn_200_status, by = "assessment_id")
+iucn_200_names_status_trends <- left_join(iucn_200_names_status, iucn_200_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
 iucn_gns_spp_300 <- iucn_gns_spp[201:301,]
 
 # Pull the genus and species names
 iucn_gns_300 <- iucn_gns_spp_300$iucn_genus
 iucn_species_300 <- iucn_gns_spp_300$iucn_species
-```
-
-```{r}
-# Thalasseus sandvicensis should remain Thalasseus sandvicensis
-iucn_species_300[39] <- "sandvicensis"
-# Aphelocoma insularis should be Aphelocoma californica (and maybe for Avonet too)
-iucn_species_300[72] <- "californica"
-# Euthlypis lachrymosa should be Basileuterus lachrymosus
-iucn_gns_300[79] <- "Basileuterus"
-iucn_species_300[79] <- "lachrymosus"
-# Psilorhinus morio should be Cyanocorax morio
-iucn_gns_300[95] <- "Cyanocorax"
 ```
 
 ```{r}
@@ -682,18 +659,195 @@ for(i in 1:length(iucn_gns_300)){
 iucn_id_vector_300 <- unlist(iucn_id_list_300)
 ```
 
-
-#### draft
 ```{r}
-ca_sed_iucn_clean <- ca_sed_names_status_trends %>% 
+# Run the assessment numbers collected from the iucn_id function
+iucn_id_data_300 <- assessment_data_many(api, iucn_id_vector_300, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+iucn_300_names <- extract_element(iucn_id_data_300, "taxon")
+iucn_300_status <- extract_element(iucn_id_data_300, "red_list_category")
+iucn_300_trends <- extract_element(iucn_id_data_300, "population_trend")
+
+iucn_300_names_status <- left_join(iucn_300_names, iucn_300_status, by = "assessment_id")
+iucn_300_names_status_trends <- left_join(iucn_300_names_status, iucn_300_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+# Bind the three dataframes back together
+iucn_all <- rbind(iucn_100_names_status_trends,
+                  iucn_200_names_status_trends,
+                  iucn_300_names_status_trends)
+```
+
+```{r}
+iucn_all_clean <- iucn_all %>% 
   dplyr::select(scientific_name, description.x, description.y, threatened) %>% 
-  rename(spp = scientific_name, 
+  rename(iucn_spp = scientific_name, 
          iucn_status = description.x,
-         iucn_trend = description.y) %>% 
-  # return scientific names to Lawler dataset
-  mutate(spp = case_when(spp == "Saucerottia beryllina" ~ "Amazilia beryllina",
-                         spp == "Leucolia violiceps" ~"Amazilia violiceps",
-                         spp == "Canachites canadensis" ~ "Falcipennis canadensis",
-                         TRUE ~ spp))
+         iucn_trend = description.y)
+```
+
+```{r}
+# Save IUCN data
+write_csv(iucn_all_clean, here("data-laa", "lawler_birds_iucn_status.csv")) 
+```
+
+```{r}
+iucn_xwlk_status <- left_join(lawler_iucn_xwlk, iucn_all_clean)
+```
+
+## Species SSI for only threatened species
+
+```{r}
+# Threatened species (31)
+threatened <- iucn_xwlk_status %>% 
+  filter(iucn_status != "Extinct") %>% 
+  filter(threatened == "threatened")
+
+threatened_spp <- threatened$lawler_spp
+threatened_spp_avonet <- threatened$avonet_spp
+```
+
+```{r}
+# threatened birds
+threatened_spp_list <- state_spp_list %>% 
+  filter(spp %in% threatened_spp)
+```
+
+```{r}
+# Try all pixels
+threatened_pxl_ssi <- threatened_spp_list %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical == 1 & future == 1),
+            historical_spp = sum(historical),
+            future_spp = sum(future),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+```{r}
+# Merge in the SSI
+threatened_id_rast_sf_ssi <- inner_join(id_rast_sf, threatened_pxl_ssi)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, color = ssi, fill = ssi)) +
+  scale_color_viridis_c() + 
+  scale_fill_viridis_c() + 
+  labs(title = "Threatened Birds Sorensen Similiarity Index")
+```
+
+```{r}
+historic_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = historical_spp, color = historical_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(historical_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Historic number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+future_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = future_spp, color = future_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(future_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Future number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(historic_spp_num_threat + theme(legend.position = 'bottom'), 
+          future_spp_num_threat + theme(legend.position = 'bottom'))
+```
+
+## Map for traits of threatened species
+
+```{r}
+threat_spp_trait <- pxl_spp_list_trait %>% 
+  filter(spp %in% threatened_spp_avonet) %>% 
+  dplyr::select(spp:juris, habitat:primary_lifestyle) %>% 
+  filter(historical > 0.25 | future > 0.5) %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
+                                     habitat_density == 2 ~ "Semi-open",
+                                     habitat_density == 3 ~ "Open")) %>% 
+  mutate(migration = case_when(migration == 1 ~ "Sedentary",
+                               migration == 2 ~ "Partial",
+                               migration == 3 ~ "Migratory"))
+```
+
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+threat_spp_trait_groups <- threat_spp_trait %>% 
+  unite(trait_group, migration, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historical),
+            future_trait_group_count = sum(future)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the Sorensen Similarity Index to traits, then we care about the presence / absence of a trait group and not the # of species
+threat_spp_trait_groups_ssi <- threat_spp_trait_groups %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            trait_group_ssi = (2 *shared)/(historical_trait_groups + future_trait_groups)) %>% 
+  ungroup()
+
+```
+
+```{r}
+# Merge in pixel geography for map
+threat_trait_rast_sf_us_ssi <- inner_join(id_rast_sf, threat_spp_trait_groups_ssi)
+```
+
+```{r}
+# Create map 
+ggplot() +
+  geom_sf(data = threat_trait_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi)) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Threatened bird trait groups Sorensen Similiarity Index")
+```
+
+### For threatened species, what's the change between trait SSI and species SSI?
+If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
+
+```{r}
+threat_pxl_ssi_dif <- left_join(threatened_id_rast_sf_ssi %>% 
+                           dplyr::select(pixel_id, trait_group_ssi),
+                         pxl_ssi %>% 
+                           dplyr::select(pixel_id, ssi)) %>% 
+  mutate(ssi_diff = trait_group_ssi - ssi)
+```
+
+```{r}
+# Merge in the pixel geography
+id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, pxl_ssi_dif)
 ```
 
