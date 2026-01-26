@@ -1,0 +1,143 @@
+---
+title: "IUCN status - Lawler birds"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
+library(janitor)
+```
+
+## IUCN threat status
+This document saves the IUCN threat status for the Lawler birds.
+
+## Read in data
+
+```{r}
+# Functions 
+source(here("common_fxns.R"))
+```
+
+```{r}
+# Read in  IUCN xwlk (created with Gemini and IUCN search engine)
+lawler_iucn_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk_update.csv")) %>% 
+  clean_names()
+```
+
+```{r}
+iucn_gns_spp <- lawler_iucn_xwlk %>% 
+  separate(iucn_spp, into = c("iucn_genus", "iucn_species"), sep = " ", remove = FALSE) 
+```
+
+### Follow process in 7_combine_sppxborder_bird_pca.qmd to bring in the IUCN information 
+
+```{r}
+api_key <- Sys.getenv("IUCN_API_KEY") ### usethis::edit_r_environ() to add key to R environment file
+api <- init_api(api_key)
+```
+
+```{r}
+# Pull the genus and species names
+iucn_gns <- iucn_gns_spp$iucn_genus
+iucn_species <- iucn_gns_spp$iucn_species
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list <- list()
+for(i in 1:length(iucn_species[1:100])){
+  test <- iucn_id(api, iucn_gns[i], iucn_species[i])
+  iucn_id_list[[i]] <- test
+}
+```
+
+```{r}
+iucn_id_vector_100 <- unlist(iucn_id_list)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+# 54 unique assessment IDs (have species repeaeted in historic and future)
+iucn_id_data_100 <- assessment_data_many(api, iucn_id_vector_100, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+iucn_200_names <- extract_element(iucn_id_data_200, "taxon")
+iucn_200_status <- extract_element(iucn_id_data_200, "red_list_category")
+iucn_200_trends <- extract_element(iucn_id_data_200, "population_trend")
+
+iucn_200_names_status <- left_join(iucn_200_names, iucn_200_status, by = "assessment_id")
+iucn_200_names_status_trends <- left_join(iucn_200_names_status, iucn_200_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+iucn_gns_spp_300 <- iucn_gns_spp[201:301,]
+
+# Pull the genus and species names
+iucn_gns_300 <- iucn_gns_spp_300$iucn_genus
+iucn_species_300 <- iucn_gns_spp_300$iucn_species
+```
+
+```{r}
+# Loop through function, save as list
+iucn_id_list_300 <- list()
+for(i in 1:length(iucn_gns_300)){
+  test <- iucn_id(api, iucn_gns_300[i], iucn_species_300[i])
+  iucn_id_list_300[[i]] <- test
+}
+```
+
+```{r}
+iucn_id_vector_300 <- unlist(iucn_id_list_300)
+```
+
+```{r}
+# Run the assessment numbers collected from the iucn_id function
+iucn_id_data_300 <- assessment_data_many(api, iucn_id_vector_300, wait_time = 0.5)
+```
+
+```{r}
+# Extract the IUCN status from all the sample species (or any other variable of interest)
+# Run element_names() to see what you can extract
+iucn_300_names <- extract_element(iucn_id_data_300, "taxon")
+iucn_300_status <- extract_element(iucn_id_data_300, "red_list_category")
+iucn_300_trends <- extract_element(iucn_id_data_300, "population_trend")
+
+iucn_300_names_status <- left_join(iucn_300_names, iucn_300_status, by = "assessment_id")
+iucn_300_names_status_trends <- left_join(iucn_300_names_status, iucn_300_trends,
+                                           by = "assessment_id") %>% 
+  mutate(threatened = case_when(description.x %in% c("Least Concern", "Near Threatened") ~ "not threatened",
+                               TRUE ~ "threatened"))
+```
+
+```{r}
+# Bind the three dataframes back together
+iucn_all <- rbind(iucn_100_names_status_trends,
+                  iucn_200_names_status_trends,
+                  iucn_300_names_status_trends)
+```
+
+```{r}
+iucn_all_clean <- iucn_all %>% 
+  dplyr::select(scientific_name, description.x, description.y, threatened) %>% 
+  rename(iucn_spp = scientific_name, 
+         iucn_status = description.x,
+         iucn_trend = description.y)
+```
+
+```{r}
+# Save IUCN data
+write_csv(iucn_all_clean, here("data-laa", "lawler_birds_iucn_status.csv")) 
+```

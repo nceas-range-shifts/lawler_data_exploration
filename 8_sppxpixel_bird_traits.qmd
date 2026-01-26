@@ -839,15 +839,34 @@ ggplot() +
 If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
 
 ```{r}
-threat_pxl_ssi_dif <- left_join(threatened_id_rast_sf_ssi %>% 
+threat_pxl_ssi_dif <- left_join(threat_spp_trait_groups_ssi%>% 
                            dplyr::select(pixel_id, trait_group_ssi),
-                         pxl_ssi %>% 
+                         threatened_pxl_ssi %>% 
                            dplyr::select(pixel_id, ssi)) %>% 
   mutate(ssi_diff = trait_group_ssi - ssi)
 ```
 
 ```{r}
 # Merge in the pixel geography
-id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, pxl_ssi_dif)
+threat_id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, threat_pxl_ssi_dif)
 ```
+
+```{r}
+ggplot() +
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
+  scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-1, 1)) + 
+  scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-1, 1)) +
+  # Show areas 0 species and trait overlap in pink
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 0 & trait_group_ssi == 0), 
+          aes(geometry = geometry), fill = "pink", color = "pink") +
+  # Show areas with full species and trait overlap in navy
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 1 & trait_group_ssi == 1), 
+          aes(geometry = geometry), fill = "navy", color = "navy") +
+  labs(title = "Threatened Trait SSI - Species SSI",
+       subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
+```
+
+
 

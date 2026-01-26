@@ -1,0 +1,428 @@
+---
+title: "Threatened species change at pixel level"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
+library(janitor)
+library(cowplot)
+```
+
+This document investigates the Sorensen Similarity Index for the threatened bird species in the Lawler paper at both the species and trait level. Visualizations are at the pixel level. Categorical trait data is from AVONET. IUCN threat data was created in 9_lawler_iucn_threat_status.qmd
+
+```{r}
+# Functions 
+source(here("common_fxns.R"))
+```
+
+```{r}
+# Read in Lawler data
+spp_mapfiles <- list.files(here_anx('/data_lawler_2020/species_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df <- data.frame(f = spp_mapfiles,
+                         spp = basename(spp_mapfiles) %>%
+                           str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                           str_replace_all('_', ' '),
+                         tax = basename(dirname(spp_mapfiles)))
+```
+
+```{r}
+# Read in AVONET dataset (reading in BirdLife tab, which should match with IUCN names)
+avonet <- read_csv(here("data-laa", "AVONET-birdlife-tab-supplementary-dataset-1.csv")) %>% 
+  clean_names()
+```
+
+```{r}
+# Read in the IUCN threat status data
+iucn_threat <- read_csv(here("data-laa", "lawler_birds_iucn_status.csv"))
+```
+
+```{r}
+# Read in  IUCN xwlk (created with Gemini and IUCN search engine)
+lawler_iucn_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk_update.csv")) %>% 
+  clean_names()
+```
+
+```{r}
+# Filter for just Lawler birds
+birds_all_df <- spp_all_df %>% 
+  filter(tax == "Birds")
+```
+
+```{r}
+birds_all <- birds_all_df %>% 
+  group_by(spp, tax) %>% 
+  summarize(files = n())
+```
+
+## Gather maps and aggregate
+
+Following the method in 2_combine_spp_scenarios.qmd: 
+For all the Lawler birds species (301) gather all future scenario maps and aggregate, summing and dividing by 3 to make a "probability" map for future distributions, and crop to just the lower 48 US states (and a little Canada and Mexico).  Then crop the historical maps to the same extent. 
+
+### Aggregate future projections
+
+For each species in the sample, aggregate the three future scenarios into a single map.  Crop to the lower continental US states.
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Aggregate over the vector of species names
+spp_vec <- birds_all_df$spp %>% unique()
+
+future_rast <- lapply(spp_vec, FUN = agg_scenario, df = birds_all_df) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- future_rast[[1]]
+#plot(x, main = names(future_rast)[1])
+```
+
+### crop historical maps
+
+```{r}
+hist_rast <- lapply(spp_vec, FUN = agg_scenario, df = birds_all_df, 
+                    scenario = 'historical') %>%
+  setNames(spp_vec) %>%
+  rast()
+
+x <- hist_rast[[1]]
+#plot(x, main = names(hist_rast)[1])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  dplyr::select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+states_rast <- rasterize(states_sf, hist_rast, field = 'gn_id')
+#plot(states_rast)
+```
+
+```{r}
+# Function to get pixels instead of jurisdictions
+extract_jurisdictions_pixels <- function(spp, future_r, hist_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_f_r <- future_r[[names(future_r) == spp]]
+  s_h_r <- hist_r[[names(hist_r) == spp]]
+  s_df <- data.frame(values(s_h_r),
+                     values(s_f_r),
+                     values(juris_r)) %>%
+    setNames(c('historical', 'future', 'id')) %>%
+    mutate(pixel_id = row_number()) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) #%>%
+    #group_by(id) %>%
+    #summarize(n_historical = sum(historical > .25),
+              #n_future = sum(future > .5))
+
+  return(s_df)
+}
+```
+
+## Rough pass at classification?
+
+For each spp let's create a dataframe of jurisdictions and cell values...
+
+```{r}
+state_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
+                         future_r = future_rast, 
+                         hist_r = hist_rast,
+                         juris_r = states_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') #%>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  #group_by(spp, juris) %>%
+  #summarize(n_historical = sum(n_historical),
+            #n_future = sum(n_future), 
+            #.groups = 'drop')
+```
+
+## Threatened bird species
+
+```{r}
+iucn_xwlk_status <- left_join(lawler_iucn_xwlk, iucn_threat)
+```
+
+## Species SSI for only threatened species
+
+```{r}
+# Threatened species (31)
+threatened <- iucn_xwlk_status %>% 
+  filter(iucn_status != "Extinct") %>% 
+  filter(threatened == "threatened")
+
+threatened_spp <- threatened$lawler_spp
+threatened_spp_avonet <- threatened$avonet_spp
+```
+
+```{r}
+# threatened birds
+threatened_spp_list <- state_spp_list %>% 
+  filter(spp %in% threatened_spp)
+```
+
+```{r}
+# Try all pixels
+threatened_pxl_ssi <- threatened_spp_list %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical == 1 & future == 1),
+            historical_spp = sum(historical),
+            future_spp = sum(future),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+## Pixel map
+
+```{r}
+# Create a blank raster with same extent as x = hist_rast[[1]] 
+id_rast <- rast(x)
+```
+
+```{r}
+# Assign IDs and then convert to sf
+values(id_rast ) <- 1:ncell(x)
+```
+
+```{r}
+id_rast_sf <- id_rast %>% 
+  stars::st_as_stars() %>% 
+  st_as_sf() %>% 
+  rename("pixel_id" = "Acrocephalus familiaris")
+```
+
+```{r}
+# Merge in the SSI
+threatened_id_rast_sf_ssi <- inner_join(id_rast_sf, threatened_pxl_ssi)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, color = ssi, fill = ssi)) +
+  scale_color_viridis_c() + 
+  scale_fill_viridis_c() + 
+  labs(title = "Threatened Birds Sorensen Similiarity Index")
+```
+
+```{r}
+historic_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = historical_spp, color = historical_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(historical_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Historic number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+future_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = future_spp, color = future_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(future_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Future number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(historic_spp_num_threat + theme(legend.position = 'bottom'), 
+          future_spp_num_threat + theme(legend.position = 'bottom'))
+```
+
+```{r}
+historic_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = historical_spp, color = historical_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(historical_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Historic number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+future_spp_num_threat <- ggplot() +
+  geom_sf(data = threatened_id_rast_sf_ssi, aes(geometry = geometry, fill = future_spp, color = future_spp)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,20)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,20)) +
+  geom_sf(data = threatened_id_rast_sf_ssi %>% filter(future_spp == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Future number of threatened bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(historic_spp_num_threat + theme(legend.position = 'bottom'), 
+          future_spp_num_threat + theme(legend.position = 'bottom'))
+```
+
+## Add in Avonet data and investigate trait SSI at pixel level
+
+Let's start with the birds that easily merge with the Avonet dataset (270)
+
+```{r}
+# See how well the Avonet trait data merges in 
+# 270 of 301 have matches - could work with these species for now since they should be able to match with IUCN
+birds_avonet <- left_join(birds_all, (avonet %>% rename(spp = species1)))
+
+lawler_avvonet_birds <- birds_avonet %>% 
+  drop_na(sequence)
+
+lawler_avvonet_birds_vec <- lawler_avvonet_birds$spp
+```
+
+Now, will add in the bird species that did not merge as easily for a total of 299 (2 of the 301 birds are extinct)
+
+```{r}
+# Read in crosswalk of lawler to avonet species (created with input from gemini)
+lawler_avonet_xwlk <- read_csv(here("data-laa", "lawler_avonet_xwlk.csv")) %>% 
+  clean_names() %>% 
+  dplyr::select(lawler_spp:name_status) %>% 
+  drop_na()
+```
+
+```{r}
+# Match the lawler avonet xlk with trait data
+# The two extinct species drop out
+lawler_avonet_traits_missing <- inner_join(lawler_avonet_xwlk, 
+                                   avonet %>% rename(avonet_spp = species1))
+```
+
+```{r}
+# Bind the easily matched birds and the birds that were missing in the merge
+lawler_avonet_all <- rbind(
+  lawler_avvonet_birds %>% dplyr::select(-tax, -files),
+  lawler_avonet_traits_missing %>% dplyr::select(-avonet_spp, -name_status)
+)
+```
+
+```{r}
+pxl_spp_list_trait <- inner_join(state_spp_list, lawler_avonet_all) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future))
+```
+
+## Map for traits of threatened species
+
+```{r}
+threat_spp_trait <- pxl_spp_list_trait %>% 
+  filter(spp %in% threatened_spp_avonet) %>% 
+  dplyr::select(spp:juris, habitat:primary_lifestyle) %>% 
+  filter(historical > 0.25 | future > 0.5) %>% 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0)) %>% 
+  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
+                                     habitat_density == 2 ~ "Semi-open",
+                                     habitat_density == 3 ~ "Open")) %>% 
+  mutate(migration = case_when(migration == 1 ~ "Sedentary",
+                               migration == 2 ~ "Partial",
+                               migration == 3 ~ "Migratory"))
+```
+
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+threat_spp_trait_groups <- threat_spp_trait %>% 
+  unite(trait_group, migration, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historical),
+            future_trait_group_count = sum(future)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the Sorensen Similarity Index to traits, then we care about the presence / absence of a trait group and not the # of species
+threat_spp_trait_groups_ssi <- threat_spp_trait_groups %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            trait_group_ssi = (2 *shared)/(historical_trait_groups + future_trait_groups)) %>% 
+  ungroup()
+
+```
+
+```{r}
+# Merge in pixel geography for map
+threat_trait_rast_sf_us_ssi <- inner_join(id_rast_sf, threat_spp_trait_groups_ssi)
+```
+
+```{r}
+# Create map 
+ggplot() +
+  geom_sf(data = threat_trait_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi)) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Threatened bird trait groups Sorensen Similiarity Index")
+```
+
+### For threatened species, what's the change between trait SSI and species SSI?
+If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
+
+```{r}
+threat_pxl_ssi_dif <- left_join(threat_spp_trait_groups_ssi%>% 
+                           dplyr::select(pixel_id, trait_group_ssi),
+                         threatened_pxl_ssi %>% 
+                           dplyr::select(pixel_id, ssi)) %>% 
+  mutate(ssi_diff = trait_group_ssi - ssi)
+```
+
+```{r}
+# Merge in the pixel geography
+threat_id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, threat_pxl_ssi_dif)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
+  scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-1, 1)) + 
+  scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-1, 1)) +
+  # Show areas 0 species and trait overlap in pink
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 0 & trait_group_ssi == 0), 
+          aes(geometry = geometry), fill = "pink", color = "pink") +
+  # Show areas with full species and trait overlap in navy
+  geom_sf(data = threat_id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 1 & trait_group_ssi == 1), 
+          aes(geometry = geometry), fill = "navy", color = "navy") +
+  labs(title = "Threatened Trait SSI - Species SSI",
+       subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
+```
