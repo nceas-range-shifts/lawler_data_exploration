@@ -384,6 +384,16 @@ us_spp_trait <- pxl_spp_list_trait %>%
 ```
 
 ```{r}
+# How many active trait groups
+trait_group <- us_spp_trait %>% 
+  unite(trait_group, migration, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(trait_group) %>% 
+  summarize(pixel_count = n(),
+            # A lot of these trait groups only have one species - need to take closer look (and consider different groupings)
+            species_count = length(unique(spp)))
+```
+
+```{r}
 # Combine the categorical columns into one group column to create unique groups
 # Count up these trait groups by pixel
 us_spp_trait_groups <- us_spp_trait %>% 
