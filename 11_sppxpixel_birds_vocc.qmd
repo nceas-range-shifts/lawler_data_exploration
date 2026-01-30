@@ -1,0 +1,188 @@
+---
+title: "Species change - VOCC data"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
+library(janitor)
+library(cowplot)
+```
+
+This document investigates the Sorensen Similarity Index for bird species in the Lawler paper at both the species and trait level. However, instead of the Lawler projections, we use updated future species ranges created from the VoCC package. Visualizations are at the pixel level. Categorical trait data is from AVONET. IUCN threat data was created in 9_lawler_iucn_threat_status.qmd
+
+```{r}
+# Functions 
+source(here("common_fxns.R"))
+```
+
+```{r}
+# Read in VoCC projected future species range
+spp_mapfiles <- list.files(here_anx('/spp_range_proj_cordex/spp_range_projected'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df <- data.frame(f = spp_mapfiles,
+                         spp_rcp = basename(spp_mapfiles) %>%
+                           str_remove('_range') %>%
+                           str_remove('_2060.+') %>%
+                           str_replace_all('_', ' ')) %>% 
+  mutate(spp = str_sub(spp_rcp, 1, -5),
+         rcp = str_sub(spp_rcp, -3, -1))
+```
+
+```{r}
+# This script focuses on the RCP 8.5 projections
+spp_rcp85 <- spp_all_df %>% 
+  filter(rcp == "8.5") %>% 
+  dplyr::select(!spp_rcp)
+```
+
+```{r}
+# Read in historical species range (same Lawler species ranges but updated to CORDEX resolution and crs)
+spp_mapfiles_hist <- list.files(here_anx('/spp_range_proj_cordex/spp_clim_hist'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+spp_all_df_hist <- data.frame(f = spp_mapfiles_hist,
+                         spp = basename(spp_mapfiles_hist) %>%
+                           #str_remove('_range') %>%
+                           str_remove('_clim_hist.+') %>%
+                           str_replace_all('_', ' ')) 
+```
+
+```{r}
+# Read in AVONET dataset (reading in BirdLife tab, which should match with IUCN names)
+avonet <- read_csv(here("data-laa", "AVONET-birdlife-tab-supplementary-dataset-1.csv")) %>% 
+  clean_names()
+```
+
+```{r}
+# Read in the IUCN threat status data
+iucn_threat <- read_csv(here("data-laa", "lawler_birds_iucn_status.csv"))
+```
+
+## Gather maps and aggregate
+
+Following the method in 2_combine_spp_scenarios.qmd: 
+For all the Lawler birds species (301) gather the future maps (just one per species unlike the Lawler data). Then crop the historical maps to the same extent. 
+
+### Aggregate future projections
+
+For each species in the sample, pull the future scenarios.  Crop to the lower continental US states.
+
+### crop future maps
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Aggregate over the vector of species names
+spp_vec <- spp_rcp85$spp %>% unique()
+```
+
+```{r}
+future_rast_vocc <- lapply(spp_vec, FUN = agg_scenario, df = spp_rcp85) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+# Test out one of the maps
+x <- future_rast_vocc[[16]]
+plot(x, main = names(future_rast_vocc)[16])
+
+```
+
+### crop historical maps (these are the Lawler historical ranges, but updated to CORDEX data resolutionand crs)
+
+```{r}
+spp_vec_hist <- spp_all_df_hist$spp %>% unique()
+```
+
+```{r}
+hist_rast <- lapply(spp_vec_hist, FUN = agg_scenario, df = spp_all_df_hist) %>%
+  setNames(spp_vec_hist) %>%
+  rast()
+
+x_hist <- hist_rast[[16]]
+plot(x_hist, main = names(hist_rast)[16])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  dplyr::select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+states_rast <- rasterize(states_sf, hist_rast, field = 'gn_id')
+#plot(states_rast)
+```
+
+```{r}
+# Function to get pixels instead of jurisdictions
+extract_jurisdictions_pixels <- function(spp, future_r, hist_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_f_r <- future_r[[names(future_r) == spp]]
+  s_h_r <- hist_r[[names(hist_r) == spp]]
+  s_df <- data.frame(values(s_h_r),
+                     values(s_f_r),
+                     values(juris_r)) %>%
+    setNames(c('historical', 'future', 'id')) %>%
+    mutate(pixel_id = row_number()) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) #%>%
+    #group_by(id) %>%
+    #summarize(n_historical = sum(historical > .25),
+              #n_future = sum(future > .5))
+
+  return(s_df)
+}
+```
+
+## Rough pass at classification?
+
+Assign any pixel greater than zero to presence (1). Count up the spp ineach pixel
+
+```{r}
+pixel_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
+                         future_r = future_rast_vocc, 
+                         hist_r = hist_rast,
+                         juris_r = states_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') #%>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  #group_by(spp, juris) %>%
+  #summarize(n_historical = sum(n_historical),
+            #n_future = sum(n_future), 
+            #.groups = 'drop')
+```
+
+```{r}
+# Assign 1 to values greater than zero
+pixel_spp_list_presence <- pixel_spp_list %>% 
+  mutate(historical = ifelse(historical > 0, 1, historical),
+         future = ifelse(future > 0, 1, future))
+
+# Count up species by pixel
+pixel_spp_count <- pixel_spp_list_presence %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical),
+            future_spp_count = sum(future))
+```
+
+
