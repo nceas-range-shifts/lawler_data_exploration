@@ -181,8 +181,59 @@ pixel_spp_list_presence <- pixel_spp_list %>%
 # Count up species by pixel
 pixel_spp_count <- pixel_spp_list_presence %>% 
   group_by(pixel_id, juris) %>% 
-  summarize(historic_spp_count = sum(historical),
-            future_spp_count = sum(future))
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE))
 ```
 
+## Pixel map
 
+```{r}
+# Create a blank raster with same extent as x = spp_rcp85[[16]] 
+id_rast <- rast(x)
+```
+
+```{r}
+# Assign IDs and then convert to sf
+values(id_rast ) <- 1:ncell(x)
+```
+
+```{r}
+id_rast_sf <- id_rast %>% 
+  stars::st_as_stars() %>% 
+  st_as_sf() %>% 
+  rename("pixel_id" = "anas fulvigula")
+```
+
+```{r}
+# Merge in species count
+pixel_spp_count_sf <- inner_join(id_rast_sf, pixel_spp_count)
+```
+
+```{r}
+historic_spp_num <- ggplot() +
+  geom_sf(data = pixel_spp_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,180)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,180)) +
+  geom_sf(data = pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Historic number of bird species (VoCC)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+future_spp_num <- ggplot() +
+  geom_sf(data = pixel_spp_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,180)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,180)) +
+  geom_sf(data = pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Future number of bird species (VoCC)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(historic_spp_num + theme(legend.position = 'bottom'), 
+          future_spp_num + theme(legend.position = 'bottom'))
+```
