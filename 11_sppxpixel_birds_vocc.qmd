@@ -52,8 +52,8 @@ spp_mapfiles_hist <- list.files(here_anx('/spp_range_proj_cordex/spp_clim_hist')
                            full.names = TRUE, recursive = TRUE, pattern = '.tif')
 spp_all_df_hist <- data.frame(f = spp_mapfiles_hist,
                          spp = basename(spp_mapfiles_hist) %>%
-                           #str_remove('_range') %>%
-                           str_remove('_clim_hist.+') %>%
+                           str_remove('clim_hist_') %>%
+                           str_remove('.tif') %>% 
                            str_replace_all('_', ' ')) 
 ```
 
@@ -236,4 +236,107 @@ future_spp_num <- ggplot() +
 ```{r}
 plot_grid(historic_spp_num + theme(legend.position = 'bottom'), 
           future_spp_num + theme(legend.position = 'bottom'))
+```
+
+## Take a closer look at Florida
+
+```{r}
+fl_sf <- pixel_spp_count_sf %>% 
+  filter(juris == "Florida")
+```
+
+```{r}
+# Get FL pixel IDs
+fl_pixels <- fl_sf$pixel_id
+```
+
+```{r}
+# Filter the presence dataframe for florida pixels
+fl_presence <- pixel_spp_list_presence %>% 
+  filter(pixel_id %in% fl_pixels)
+```
+
+```{r}
+# Look at one of the species that mostly is not in historic but is in future FL
+# [27] "
+hist_27 <- hist_rast[[27]]
+plot(hist_27, main = names(hist_rast)[27])
+```
+
+```{r}
+# Test out one of the maps
+future_27 <- future_rast_vocc[[27]]
+plot(future_27, main = names(future_rast_vocc)[27])
+```
+
+```{r}
+# Look at one of the species that mostly is not in historic but is in future FL
+# [31] "
+hist_31 <- hist_rast[[31]]
+plot(hist_31, main = names(hist_rast)[31])
+```
+
+```{r}
+# Test out one of the maps
+future_31 <- future_rast_vocc[[31]]
+plot(future_31, main = names(future_rast_vocc)[31])
+```
+
+
+### Both species above look like they have one cell in FL in historic and then that range expands up through the channel (so lots of species get concentrated in that channel)
+
+## Let's map only the species that have at least one cell in FL in historic
+
+```{r}
+fl_spp_hist <- fl_presence %>% 
+  filter(historical == 1)
+
+fl_spp_hist_vec <- unique(fl_spp_hist$spp)
+```
+
+```{r}
+fl_spp_hist_all <- pixel_spp_list_presence %>% 
+  filter(spp %in% fl_spp_hist_vec)
+```
+
+```{r}
+# Count up species by pixel
+fl_pixel_spp_count <- fl_spp_hist_all %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE))
+```
+
+```{r}
+# Merge in species count
+fl_pixel_spp_count_sf <- inner_join(id_rast_sf, fl_pixel_spp_count)
+```
+
+```{r}
+fl_historic_spp_num <- ggplot() +
+  geom_sf(data = fl_pixel_spp_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,180)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,180)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Historic number of bird species (FL start)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+fl_future_spp_num <- ggplot() +
+  geom_sf(data = fl_pixel_spp_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,180)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,180)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Future number of bird species (FL start)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(fl_historic_spp_num + theme(legend.position = 'bottom'), 
+          fl_future_spp_num + theme(legend.position = 'bottom'))
 ```
