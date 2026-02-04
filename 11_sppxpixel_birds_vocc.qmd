@@ -342,7 +342,6 @@ plot_grid(fl_historic_spp_num + theme(legend.position = 'bottom'),
 ```
 
 ## How do these same species compare to the Lawler data? 
-Keeping in mind the Lawler data was for RCP 4.5 and this is for RCP 8.5
 
 ```{r}
 # Read in Lawler data
@@ -389,8 +388,8 @@ lawler_hist_rast <- lapply(lawler_spp_vec, FUN = agg_scenario, df = birds_all_df
   setNames(lawler_spp_vec) %>%
   rast()
 
-#x_lawler <- lawler_future_rast[[1]]
-#plot(x_lawler, main = names(lawler_future_rast)[1])
+x_lawler <- lawler_future_rast[[1]]
+plot(x_lawler, main = names(lawler_future_rast)[1])
 
 ```
 
@@ -468,7 +467,7 @@ id_rast_sf_lawler <- id_rast_lawler %>%
 ```
 
 ```{r}
-# Merge in the SSI
+# Merge in count
 lawler_fl_count_sf <- inner_join(id_rast_sf_lawler, lawler_fl_count)
 ```
 
@@ -514,3 +513,139 @@ lawler_future_27 <- lawler_future_rast[[27]]
 plot(lawler_future_27, main = names(lawler_future_rast)[27])
 ```
 
+```{r}
+# Look at one of the species that mostly is not in historic but is in future FL
+# [31] "
+lawler_hist_31 <- lawler_hist_rast[[31]]
+plot(lawler_hist_31, main = names(lawler_hist_rast)[31])
+```
+
+```{r}
+# Test out one of the maps
+lawler_future_31 <- lawler_future_rast[[31]]
+plot(lawler_future_31, main = names(lawler_future_rast)[31])
+```
+
+## What if we focus on the Lawler species that leave FL? How do these compare to the VoCC maps?
+
+```{r}
+lawler_fl_species <- lawler_spp_list %>% 
+  filter(juris == "Florida") %>%
+  mutate(spp = tolower(spp)) %>% 
+  group_by(spp) %>% 
+  summarize(historical_pixel_count = sum(historical > 0.5),
+            future_pixel_count = sum(future > 0.5)) %>% 
+  filter(historical_pixel_count > 0 & future_pixel_count == 0) %>% 
+  ungroup()
+
+lawler_left_fl <- lawler_fl_species$spp
+```
+
+```{r}
+lawler_spp_list_left_fl <- lawler_spp_list %>% 
+  mutate(spp = tolower(spp)) %>% 
+  filter(spp %in% lawler_left_fl ) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0))
+```
+
+```{r}
+lawler_left_fl_count <- lawler_spp_list_left_fl %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE))
+```
+
+```{r}
+# Merge in count
+lawler_left_fl_count_sf <- inner_join(id_rast_sf_lawler, lawler_left_fl_count)
+```
+
+```{r}
+lawler_left_fl_historic_spp_num <- ggplot() +
+  geom_sf(data = lawler_left_fl_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler historic number of bird species (left FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+lawler_left_fl_future_spp_num <- ggplot() +
+  geom_sf(data = lawler_left_fl_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler future number of bird species (left FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(lawler_left_fl_historic_spp_num + theme(legend.position = 'bottom'), 
+          lawler_left_fl_future_spp_num + theme(legend.position = 'bottom'))
+```
+
+## Filter the VoCC data for the same 77 species that left FL in the Lawler data
+
+```{r}
+left_fl_spp_hist_all <- pixel_spp_list_presence %>% 
+  filter(spp %in% lawler_left_fl)
+```
+
+```{r}
+# Count up species by pixel
+left_fl_pixel_spp_count <- left_fl_spp_hist_all %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE)) %>% 
+  ungroup()
+```
+
+```{r}
+# Merge in species count
+left_fl_pixel_spp_count_sf <- inner_join(id_rast_sf, left_fl_pixel_spp_count)
+```
+
+```{r}
+left_fl_historic_spp_num <- ggplot() +
+  geom_sf(data = left_fl_pixel_spp_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC historic number of bird species (left FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+left_fl_future_spp_num <- ggplot() +
+  geom_sf(data = left_fl_pixel_spp_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC future number of bird species (left FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(left_fl_historic_spp_num + theme(legend.position = 'bottom'), 
+          left_fl_future_spp_num + theme(legend.position = 'bottom'))
+```
+
+```{r}
+plot_grid(lawler_left_fl_historic_spp_num + theme(legend.position = 'right'), 
+          lawler_left_fl_future_spp_num + theme(legend.position = 'right'),
+          left_fl_historic_spp_num + theme(legend.position = 'right'), 
+          left_fl_future_spp_num + theme(legend.position = 'right'))
+```
