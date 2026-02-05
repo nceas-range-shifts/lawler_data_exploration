@@ -1,0 +1,508 @@
+---
+title: "12_sppxpixel_birds_vocc_revised.qmd"
+format: 
+  html:
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(sf)
+library(rnaturalearth)
+library(here)
+library(iucnredlist) ### remotes::install_github("IUCN-UK/iucnredlist")
+library(janitor)
+library(cowplot)
+```
+
+This document investigates the Sorensen Similarity Index for bird species in the Lawler paper at both the species and trait level. However, instead of the Lawler projections, we use updated future species ranges created from the VoCC package. Visualizations are at the pixel level. Categorical trait data is from AVONET. IUCN threat data was created in 9_lawler_iucn_threat_status.qmd
+
+```{r}
+# Functions 
+source(here("common_fxns.R"))
+```
+
+```{r}
+# Read in VoCC projected future species range (filtering for rcp 8.5)
+spp_rcp85_mapfiles <- list.files(here_anx('/spp_range_proj_cordex/spp_range_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = 'rcp8.5')
+spp_rcp85 <- data.frame(f = spp_rcp85_mapfiles,
+                         spp = basename(spp_mapfiles) %>%
+                           str_remove('spp_proj_rcp8.5_2056-2060_') %>%
+                           str_remove('.tif') %>%
+                           str_replace_all('_', ' ')) 
+```
+
+## Gather maps and aggregate
+
+Following the method in 2_combine_spp_scenarios.qmd: 
+For all the Lawler birds species (301) gather the future maps (just one per species unlike the Lawler data). Then crop the historical maps to the same extent. 
+
+### Aggregate future projections
+
+* Value = 1: historical areas only (no trajectories, no analog - these are range cells outside bounds of climate map, so no trajectories could be calculated)
+*Value = 2: trajectory only (outside historic bounds and analog bounds - transit cell)
+*Value = 3: historical + trajectory (no analog; species had historical range but will not persist in future)
+*Value = 4: analog only (no historical, no trajectory - these are climate analogs but are not reachable)
+*Value = 5: analog + historical only, no trajectory (these should not occur)
+*Value = 6: analog + trajectory only (novel and reachable analog locations, outside of historical locations)
+*Value = 7: analog + trajectory + historical (persistence of original range into the future range)
+
+**Values 1, 3, and 7 create historic range**
+**Values 6 and 7 are create future range**
+
+
+### crop future maps
+
+```{r}
+### set up extent for continental US
+us_extent <- ext(c(xmin = -130, xmax = -65, ymin = 23, ymax = 50))
+
+### Aggregate over the vector of species names
+spp_vec <- spp_rcp85$spp %>% unique()
+```
+
+```{r}
+range_vocc <- lapply(spp_vec, FUN = agg_scenario, df = spp_rcp85) %>%
+  setNames(spp_vec) %>%
+  rast()
+
+# Test out one of the maps
+x <- future_rast_vocc[[27]]
+plot(x, main = names(range_vocc)[27])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  dplyr::select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+states_rast <- rasterize(states_sf, range_vocc, field = 'gn_id')
+#plot(states_rast)
+```
+
+```{r}
+# Function to get pixels instead of jurisdictions
+extract_jurisdictions_pixels <- function(spp, range_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_r_r <- range_r[[names(range_r) == spp]]
+  s_df <- data.frame(values(s_r_r),
+                     values(juris_r)) %>%
+    setNames(c('range_value', 'id')) %>%
+    mutate(pixel_id = row_number()) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(range_value)) #%>%
+    #group_by(id) %>%
+    #summarize(n_historical = sum(historical > .25),
+              #n_future = sum(future > .5))
+
+  return(s_df)
+}
+```
+
+## Rough pass at classification?
+
+Assign any pixel greater than zero to presence (1). Count up the spp ineach pixel
+
+```{r}
+pixel_spp_list <- lapply(spp_vec, FUN = extract_jurisdictions_pixels,
+                         range_r = range_vocc, 
+                         juris_r = states_rast) %>%
+  setNames(spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') #%>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  #group_by(spp, juris) %>%
+  #summarize(n_historical = sum(n_historical),
+            #n_future = sum(n_future), 
+            #.groups = 'drop')
+```
+
+```{r}
+# Add a row classifying the the range values into future range (6, 7) or historic range (1, 3, 7)
+# Currently no raster values of 1 b/c map is cropped
+pixel_spp_range <- pixel_spp_list %>% 
+  mutate(historic_range = ifelse(range_value %in% c(1, 3, 7), 1, 0),
+        future_range = ifelse(range_value %in% c(6, 7), 1, 0))
+```
+
+```{r}
+# Count up species by pixel
+pixel_spp_count <- pixel_spp_range %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historic_range, na.rm = TRUE),
+            future_spp_count = sum(future_range, na.rm = TRUE))
+```
+
+```{r}
+# Create a blank raster with same extent as x = spp_rcp85[[16]] 
+id_rast <- rast(x)
+```
+
+```{r}
+# Assign IDs and then convert to sf
+values(id_rast ) <- 1:ncell(x)
+```
+
+```{r}
+id_rast_sf <- id_rast %>% 
+  stars::st_as_stars() %>% 
+  st_as_sf() %>% 
+  rename("pixel_id" = "anas fulvigula")
+```
+
+```{r}
+# Merge in species count
+pixel_spp_count_sf <- inner_join(id_rast_sf, pixel_spp_count)
+```
+
+```{r}
+historic_spp_num <- ggplot() +
+  geom_sf(data = pixel_spp_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,200)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,200)) +
+  geom_sf(data = pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC historic number of bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+future_spp_num <- ggplot() +
+  geom_sf(data = pixel_spp_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,200)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,200)) +
+  geom_sf(data = pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC future number of bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(historic_spp_num + theme(legend.position = 'bottom'), 
+          future_spp_num + theme(legend.position = 'bottom'))
+```
+
+## How do these same species compare to the Lawler data? 
+
+```{r}
+# Read in Lawler data
+lawler_spp_mapfiles <- list.files(here_anx('/data_lawler_2020/species_projections'), 
+                           full.names = TRUE, recursive = TRUE, pattern = '.tif')
+lawler_spp_all_df <- data.frame(f = lawler_spp_mapfiles,
+                         spp = basename(lawler_spp_mapfiles) %>%
+                           str_remove('(_gf85|_in85|_mc85|_bias).+') %>%
+                           str_replace_all('_', ' '),
+                         tax = basename(dirname(lawler_spp_mapfiles)))
+```
+
+```{r}
+# Filter for just Lawler birds
+birds_all_df <- lawler_spp_all_df %>% 
+  filter(tax == "Birds")
+```
+
+```{r}
+birds_all <- birds_all_df %>% 
+  group_by(spp, tax) %>% 
+  summarize(files = n())
+```
+
+For each species in the sample, aggregate the three future scenarios into a single map.  Crop to the lower continental US states.
+
+```{r}
+### Aggregate over the vector of species names
+lawler_spp_vec <- birds_all_df$spp %>% unique()
+
+lawler_future_rast <- lapply(lawler_spp_vec, FUN = agg_scenario, df = birds_all_df) %>%
+  setNames(lawler_spp_vec) %>%
+  rast()
+
+#x <- future_rast[[1]]
+#plot(x, main = names(future_rast)[1])
+```
+
+### crop historical maps
+
+```{r}
+lawler_hist_rast <- lapply(lawler_spp_vec, FUN = agg_scenario, df = birds_all_df, 
+                    scenario = 'historical') %>%
+  setNames(lawler_spp_vec) %>%
+  rast()
+
+x_lawler <- lawler_future_rast[[1]]
+plot(x_lawler, main = names(lawler_future_rast)[1])
+
+```
+
+## Generate jurisdiction map
+
+Let's generate a simple jurisdiction map - US states, and Canada and Mexico.
+
+```{r}
+states_sf <- ne_states(returnclass = 'sf', country = c('Mexico', 'Canada', 'United States of America')) 
+
+state_id_df <- states_sf %>%
+  st_drop_geometry() %>%
+  mutate(juris = ifelse(adm0_a3 == 'USA', name, admin)) %>%
+  dplyr::select(id = gn_id, juris)
+### plot(states_sf %>% select(iso_a2))
+lawler_states_rast <- rasterize(states_sf, lawler_hist_rast, field = 'gn_id')
+#plot(lawler_states_rast)
+```
+
+## Rough pass at classification?
+
+For each spp let's create a dataframe of jurisdictions and cell values...
+
+```{r}
+# Function to get pixels instead of jurisdictions
+lawler_extract_jurisdictions_pixels <- function(spp, future_r, hist_r, juris_r) {
+  ### spp <- spp_vec[1]
+  ### future_r = future_rast; hist_r = hist_rast; juris_r = states_rast
+  s_f_r <- future_r[[names(future_r) == spp]]
+  s_h_r <- hist_r[[names(hist_r) == spp]]
+  s_df <- data.frame(values(s_h_r),
+                     values(s_f_r),
+                     values(juris_r)) %>%
+    setNames(c('historical', 'future', 'id')) %>%
+    mutate(pixel_id = row_number()) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) #%>%
+    #group_by(id) %>%
+    #summarize(n_historical = sum(historical > .25),
+              #n_future = sum(future > .5))
+
+  return(s_df)
+}
+```
+
+```{r}
+lawler_spp_list <- lapply(lawler_spp_vec, FUN = lawler_extract_jurisdictions_pixels,
+                         future_r = lawler_future_rast, 
+                         hist_r = lawler_hist_rast,
+                         juris_r = lawler_states_rast) %>%
+  setNames(lawler_spp_vec) %>%
+  bind_rows(.id = 'spp') %>%
+  left_join(state_id_df, by = 'id') #%>%
+  ### note, Canada and Mexico have multiple jurisdictions (provinces and states)
+  ### so sum up all those instances
+  #group_by(spp, juris) %>%
+  #summarize(n_historical = sum(n_historical),
+            #n_future = sum(n_future), 
+            #.groups = 'drop')
+```
+
+```{r}
+# Create a blank raster with same extent as x = hist_rast[[1]] 
+id_rast_lawler <- rast(x_lawler)
+```
+
+```{r}
+# Assign IDs and then convert to sf
+values(id_rast_lawler ) <- 1:ncell(x_lawler)
+```
+
+```{r}
+id_rast_sf_lawler <- id_rast_lawler %>% 
+  stars::st_as_stars() %>% 
+  st_as_sf() %>% 
+  rename("pixel_id" = "Acrocephalus familiaris")
+```
+
+## What if we focus on the Lawler species that leave FL? How do these compare to the VoCC maps?
+
+```{r}
+lawler_fl_species <- lawler_spp_list %>% 
+  filter(juris == "Florida") %>%
+  mutate(spp = tolower(spp)) %>% 
+  group_by(spp) %>% 
+  summarize(historical_pixel_count = sum(historical > 0.5),
+            future_pixel_count = sum(future > 0.5)) %>% 
+  filter(historical_pixel_count > 0 & future_pixel_count == 0) %>% 
+  ungroup()
+
+lawler_left_fl <- lawler_fl_species$spp
+```
+
+```{r}
+lawler_spp_list_left_fl <- lawler_spp_list %>% 
+  mutate(spp = tolower(spp)) %>% 
+  filter(spp %in% lawler_left_fl ) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0))
+```
+
+```{r}
+lawler_left_fl_count <- lawler_spp_list_left_fl %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE))
+```
+
+```{r}
+# Merge in count
+lawler_left_fl_count_sf <- inner_join(id_rast_sf_lawler, lawler_left_fl_count)
+```
+
+```{r}
+lawler_left_fl_historic_spp_num <- ggplot() +
+  geom_sf(data = lawler_left_fl_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler historic number of bird species (77 leave FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+lawler_left_fl_future_spp_num <- ggplot() +
+  geom_sf(data = lawler_left_fl_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler future number of bird species (77 leave FL)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(lawler_left_fl_historic_spp_num + theme(legend.position = 'bottom'), 
+          lawler_left_fl_future_spp_num + theme(legend.position = 'bottom'))
+```
+
+## Filter the VoCC data for the same 77 species that left FL in the Lawler data
+
+```{r}
+left_fl_spp_hist_all <- pixel_spp_range %>% 
+  filter(spp %in% lawler_left_fl)
+```
+
+```{r}
+# Count up species by pixel
+left_fl_pixel_spp_count <- left_fl_spp_hist_all %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historic_range, na.rm = TRUE),
+            future_spp_count = sum(future_range, na.rm = TRUE)) %>% 
+  ungroup()
+```
+
+```{r}
+# Merge in species count
+left_fl_pixel_spp_count_sf <- inner_join(id_rast_sf, left_fl_pixel_spp_count)
+```
+
+```{r}
+left_fl_historic_spp_num <- ggplot() +
+  geom_sf(data = left_fl_pixel_spp_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC historic number of bird species (same 77)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+left_fl_future_spp_num <- ggplot() +
+  geom_sf(data = left_fl_pixel_spp_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(limits = c(1,53)) + 
+  scale_color_viridis_c(limits = c(1,53)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "VoCC future number of bird species (same 77)",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(left_fl_historic_spp_num + theme(legend.position = 'bottom'), 
+          left_fl_future_spp_num + theme(legend.position = 'bottom'))
+```
+
+```{r}
+plot_grid(lawler_left_fl_historic_spp_num + theme(legend.position = 'right'), 
+          lawler_left_fl_future_spp_num + theme(legend.position = 'right'),
+          left_fl_historic_spp_num + theme(legend.position = 'right'), 
+          left_fl_future_spp_num + theme(legend.position = 'right'))
+```
+
+### For comparison, create the same four grid map forallthe birds
+
+```{r}
+lawler_spp_list_all <- lawler_spp_list %>% 
+  mutate(spp = tolower(spp)) %>% 
+    filter(!is.na(id)) %>%
+    filter(!is.na(historical) | !is.na(future)) %>% 
+  # Assign future pixels > 0.5 to spp prescence 
+  mutate(future = case_when(future > 0.5 ~ 1,
+                           TRUE ~ 0))
+```
+
+```{r}
+lawler_count <- lawler_spp_list_all%>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(historic_spp_count = sum(historical, na.rm = TRUE),
+            future_spp_count = sum(future, na.rm = TRUE))
+```
+
+```{r}
+# Merge in count
+lawler_count_sf <- inner_join(id_rast_sf_lawler, lawler_count)
+```
+
+```{r}
+lawler_historic_spp_num <- ggplot() +
+  geom_sf(data = lawler_count_sf, aes(geometry = geometry, fill = historic_spp_count, color = historic_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,200)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,200)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(historic_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler historic number of bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+lawler_future_spp_num <- ggplot() +
+  geom_sf(data = lawler_count_sf, aes(geometry = geometry, fill = future_spp_count, color = future_spp_count)) + 
+  scale_fill_viridis_c(option = "plasma", limits = c(1,200)) + 
+  scale_color_viridis_c(option = "plasma", limits = c(1,200)) +
+  #geom_sf(data = fl_pixel_spp_count_sf %>% filter(future_spp_count == 0), aes(geometry = geometry), fill = "gray40", color = "grey40") + 
+  labs(title = "Lawler future number of bird species",
+       subtitle = "(0 species in gray)",
+       fill = "count",
+       color = "count")
+```
+
+```{r}
+plot_grid(lawler_historic_spp_num + theme(legend.position = 'right'), 
+          lawler_future_spp_num + theme(legend.position = 'right'),
+          historic_spp_num + theme(legend.position = 'right'), 
+          future_spp_num + theme(legend.position = 'right'))
+```
+
+
