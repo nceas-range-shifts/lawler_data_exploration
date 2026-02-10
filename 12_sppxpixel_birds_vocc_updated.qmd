@@ -31,7 +31,7 @@ source(here("common_fxns.R"))
 spp_rcp85_mapfiles <- list.files(here_anx('/spp_range_proj_cordex/spp_range_projections'), 
                            full.names = TRUE, recursive = TRUE, pattern = 'rcp8.5')
 spp_rcp85 <- data.frame(f = spp_rcp85_mapfiles,
-                         spp = basename(spp_mapfiles) %>%
+                         spp = basename(spp_rcp85_mapfiles) %>%
                            str_remove('spp_proj_rcp8.5_2056-2060_') %>%
                            str_remove('.tif') %>%
                            str_replace_all('_', ' ')) 
@@ -503,6 +503,139 @@ plot_grid(lawler_historic_spp_num + theme(legend.position = 'right'),
           lawler_future_spp_num + theme(legend.position = 'right'),
           historic_spp_num + theme(legend.position = 'right'), 
           future_spp_num + theme(legend.position = 'right'))
+```
+
+## Species and trait similiarity
+
+
+```{r}
+pixel_spp_ssi <- pixel_spp_range %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historic_range == 1 & future_range == 1),
+            historical_spp = sum(historic_range),
+            future_spp = sum(future_range),
+            ssi = (2 *shared)/(historical_spp + future_spp))
+```
+
+```{r}
+# Add in sf
+ pixel_spp_ssi_sf <- inner_join(id_rast_sf, pixel_spp_ssi)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = pixel_spp_ssi_sf, aes(geometry = geometry, color = ssi, fill = ssi)) +
+  scale_color_viridis_c() + 
+  scale_fill_viridis_c() + 
+  labs(title = "Birds Sorensen Similiarity Index")
+```
+
+### Add in the trait data
+
+```{r}
+# Read in AVONET dataset (reading in BirdLife tab, which should match with IUCN names)
+avonet <- read_csv(here("data-laa", "AVONET-birdlife-tab-supplementary-dataset-1.csv")) %>% 
+  clean_names() %>% 
+  rename(avonet_spp = species1)
+```
+
+```{r}
+# Read in  IUCN xwlk (created with Gemini and IUCN search engine)
+lawler_iucn_avonet_xwlk <- read_csv(here("data-laa", "Lawler_IUCN_Avonet_xwlk_update.csv")) %>% 
+  clean_names() %>% 
+  rename(spp = lawler_spp) %>% 
+  mutate(spp = tolower(spp))
+```
+
+```{r}
+# Combine files
+pixel_spp_range_xwlk <- left_join(pixel_spp_range, lawler_iucn_avonet_xwlk)
+pixel_spp_range_avonet <- left_join(pixel_spp_range_xwlk, avonet)
+```
+
+```{r}
+pixel_spp_range_avonet_clean <- pixel_spp_range_avonet %>% 
+  dplyr::select(spp:avonet_spp, habitat:primary_lifestyle) %>% 
+  mutate(habitat_density = case_when(habitat_density == 1 ~ "Dense",
+                                     habitat_density == 2 ~ "Semi-open",
+                                     habitat_density == 3 ~ "Open")) %>% 
+  mutate(migration = case_when(migration == 1 ~ "Sedentary",
+                               migration == 2 ~ "Partial",
+                               migration == 3 ~ "Migratory"))
+```
+
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+spp_trait_groups <- pixel_spp_range_avonet_clean  %>% 
+  unite(trait_group, migration, habitat_density, habitat, trophic_level, trophic_niche, primary_lifestyle) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historic_range),
+            future_trait_group_count = sum(future_range)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the Sorensen Similarity Index to traits, then we care about the presence / absence of a trait group and not the # of species
+spp_trait_groups_ssi <- spp_trait_groups %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            trait_group_ssi = (2 *shared)/(historical_trait_groups + future_trait_groups)) %>% 
+  ungroup()
+
+```
+
+```{r}
+# Merge in pixel geography for map
+trait_rast_sf_us_ssi <- inner_join(id_rast_sf, spp_trait_groups_ssi)
+```
+
+```{r}
+# Create map 
+ggplot() +
+  geom_sf(data = trait_rast_sf_us_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi)) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Bird trait groups Sorensen Similiarity Index")
+```
+
+### For VoCC species, what's the change between trait SSI and species SSI?
+If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
+
+```{r}
+pxl_ssi_dif <- left_join(spp_trait_groups_ssi%>% 
+                           dplyr::select(pixel_id, trait_group_ssi),
+                         pixel_spp_ssi %>% 
+                           dplyr::select(pixel_id, ssi)) %>% 
+  mutate(ssi_diff = trait_group_ssi - ssi)
+```
+
+```{r}
+# Merge in the pixel geography
+id_rast_sf_us_ssi_diff <- inner_join(id_rast_sf, pxl_ssi_dif)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_us_ssi_diff, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
+  scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) + 
+  scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) +
+  # Show areas 0 species and trait overlap in pink
+  geom_sf(data = id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 0 & trait_group_ssi == 0), 
+          aes(geometry = geometry), fill = "pink", color = "pink") +
+  # Show areas with full species and trait overlap in navy
+  geom_sf(data = id_rast_sf_us_ssi_diff %>% 
+            filter(ssi == 1 & trait_group_ssi == 1), 
+          aes(geometry = geometry), fill = "navy", color = "navy") +
+  labs(title = "Trait SSI - Species SSI",
+       subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
 ```
 
 
