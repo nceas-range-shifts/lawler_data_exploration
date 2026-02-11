@@ -72,8 +72,8 @@ range_vocc <- lapply(spp_vec, FUN = agg_scenario, df = spp_rcp85) %>%
   rast()
 
 # Test out one of the maps
-x <- future_rast_vocc[[27]]
-plot(x, main = names(range_vocc)[27])
+x <- range_vocc[[16]]
+plot(x, main = names(range_vocc)[16])
 
 ```
 
@@ -638,4 +638,85 @@ ggplot() +
        subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
 ```
 
+## Test out a more discrete set of traits
+Use habtiat, trophic niche, and migratory status as the group traits. 
 
+```{r}
+# Combine the categorical columns into one group column to create unique groups
+# Count up these trait groups by pixel
+spp_trait_groups_simple <- pixel_spp_range_avonet_clean  %>% 
+  unite(trait_group, migration, habitat, trophic_niche) %>% 
+  group_by(pixel_id, juris, trait_group) %>% 
+  summarize(historical_trait_group_count = sum(historic_range),
+            future_trait_group_count = sum(future_range)) %>% 
+  ungroup()
+```
+
+```{r}
+# If we apply the Sorensen Similarity Index to traits, then we care about the presence / absence of a trait group and not the # of species
+spp_trait_groups_simple_ssi <- spp_trait_groups_simple %>% 
+  mutate(historical_trait_group_presence = case_when(historical_trait_group_count == 0 ~ 0,
+                                                     historical_trait_group_count != 0 ~ 1),
+         future_trait_group_presence = case_when(future_trait_group_count == 0 ~ 0,
+                                                     future_trait_group_count != 0 ~ 1)) %>% 
+  group_by(pixel_id, juris) %>% 
+  summarize(shared = sum(historical_trait_group_presence == 1 & future_trait_group_presence == 1),
+            historical_trait_groups= sum(historical_trait_group_presence),
+            future_trait_groups = sum(future_trait_group_presence),
+            trait_group_ssi = (2 *shared)/(historical_trait_groups + future_trait_groups)) %>% 
+  ungroup()
+
+```
+
+```{r}
+# Merge in pixel geography for map
+trait_rast_sf_us_simple_ssi <- inner_join(id_rast_sf, spp_trait_groups_simple_ssi)
+```
+
+```{r}
+# Create map 
+ggplot() +
+  geom_sf(data = trait_rast_sf_us_simple_ssi, aes(geometry = geometry, fill = trait_group_ssi, color = trait_group_ssi)) + 
+  scale_fill_viridis_c(limits = c(0,1)) + 
+  scale_color_viridis_c(limits = c(0,1)) +
+  labs(title = "Bird trait groups Sorensen Similiarity Index",
+       subtitle = "habitat-migration-trophic niche")
+```
+
+Map has more yellow and is a little less chaotic with simplier trait groups. 
+
+### For VoCC species, what's the change between simplier trait SSI and species SSI?
+If traits are compensating for some of the change in species similarity, then the difference between trait SSI and species SSI should be positive (more similarity between traits than species).
+
+```{r}
+pxl_ssi_dif_simple <- left_join(spp_trait_groups_simple_ssi%>% 
+                           dplyr::select(pixel_id, trait_group_ssi),
+                         pixel_spp_ssi %>% 
+                           dplyr::select(pixel_id, ssi)) %>% 
+  mutate(ssi_diff = trait_group_ssi - ssi)
+```
+
+```{r}
+# Merge in the pixel geography
+id_rast_sf_us_ssi_diff_simple <- inner_join(id_rast_sf, pxl_ssi_dif_simple)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = id_rast_sf_us_ssi_diff_simple, aes(geometry = geometry, fill = ssi_diff, color = ssi_diff), size = 0) + 
+  scale_color_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) + 
+  scale_fill_distiller(palette = "BrBG", direction = 1, limits = c(-0.4, 0.4)) +
+  # Show areas 0 species and trait overlap in pink
+  geom_sf(data = id_rast_sf_us_ssi_diff_simple %>% 
+            filter(ssi == 0 & trait_group_ssi == 0), 
+          aes(geometry = geometry), fill = "pink", color = "pink") +
+  # Show areas with full species and trait overlap in navy
+  geom_sf(data = id_rast_sf_us_ssi_diff_simple %>% 
+            filter(ssi == 1 & trait_group_ssi == 1), 
+          aes(geometry = geometry), fill = "navy", color = "navy") +
+  labs(title = "Trait SSI (habitat-migration-diet) - Species SSI",
+       subtitle = "(pink is 0 trait and 0 species SSI; navy is 1 trait and 1 species SSI)")
+```
+
+
+There's more teal in this map with the simpler trait categories (trait categories are compensating more for loss of species similarity)
